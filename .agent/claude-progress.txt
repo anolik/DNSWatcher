@@ -1,0 +1,19 @@
+# SPF/DMARC/DKIM Watcher Progress Log
+
+## Session 0: Initialization
+Date: 2026-02-24
+Status: Project initialized
+
+Files created:
+- CLAUDE.md (project identity, standards, startup ritual)
+- WORKFLOW.md (5 phases, 17 tasks, agent assignments)
+- PRD.md (37 features with model assignments)
+- .agent/feature_list.json (37 features, single source of truth)
+- .agent/init.sh (environment setup script)
+- .agent/claude-progress.txt (this file)
+
+Total features: 37
+  P0: 22, P1: 12, P2: 1, P3: 0
+  Opus: 7, Sonnet: 18, Haiku: 12
+
+Next: Phase 1 - F01 Flask Application Factory (backend-architect, Sonnet)

@@ -1,0 +1,1032 @@
+{
+  "project": "SPF/DMARC/DKIM Watcher",
+  "version": "1.0.0",
+  "generated_at": "2026-02-24T00:00:00Z",
+  "total_features": 37,
+  "completed_features": 0,
+  "features": [
+    {
+      "id": "F01",
+      "category": "foundation",
+      "priority": "P0",
+      "agent": "backend-architect",
+      "model": "sonnet",
+      "description": "Flask application factory with blueprint registration, config loading, DB init",
+      "acceptance_criteria": [
+        "create_app() function in app/__init__.py",
+        "Loads config from app/config.py",
+        "Registers 6 blueprints (auth, dashboard, history, settings, ingest, api)",
+        "Initializes Flask-SQLAlchemy, Flask-Login, Flask-WTF",
+        "SQLite3 path configurable via environment variable"
+      ],
+      "verification_steps": [
+        "python -c \"from app import create_app; app = create_app(); print(app.blueprints.keys())\"",
+        "All 6 blueprints listed"
+      ],
+      "dependencies": [],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F02",
+      "category": "foundation",
+      "priority": "P0",
+      "agent": "backend-architect",
+      "model": "haiku",
+      "description": "Centralized configuration with defaults and environment variable overrides",
+      "acceptance_criteria": [
+        "SECRET_KEY from env var, error if not set in production",
+        "SQLALCHEMY_DATABASE_URI defaults to sqlite:///watcher.db",
+        "SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE=Lax",
+        "MAX_CONTENT_LENGTH=1MB",
+        "Debug mode toggleable via env var"
+      ],
+      "verification_steps": [
+        "App starts with default config",
+        "Env vars override defaults"
+      ],
+      "dependencies": [],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F03",
+      "category": "foundation",
+      "priority": "P0",
+      "agent": "backend-architect",
+      "model": "sonnet",
+      "description": "Define all 7 SQLAlchemy models with relationships, indexes, and constraints",
+      "acceptance_criteria": [
+        "All 7 tables defined per schema (users, domains, dkim_selectors, check_results, flap_state, change_log, dns_settings)",
+        "Foreign keys with CASCADE delete on domain-related tables",
+        "Composite unique constraints on dkim_selectors and flap_state",
+        "Indexes on (domain_id, checked_at DESC) for check_results and change_log",
+        "JSON columns use TEXT type with serialization helpers"
+      ],
+      "verification_steps": [
+        "python init_db.py creates all tables without errors",
+        "sqlite3 watcher.db .schema shows expected structure"
+      ],
+      "dependencies": ["F01"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F04",
+      "category": "foundation",
+      "priority": "P0",
+      "agent": "backend-architect",
+      "model": "haiku",
+      "description": "init_db.py script that creates tables and seeds default dns_settings",
+      "acceptance_criteria": [
+        "Creates all tables if they don't exist",
+        "Seeds dns_settings with id=1, resolvers=[8.8.8.8,1.1.1.1,9.9.9.9], timeout=5.0, retries=3, flap_threshold=2",
+        "Idempotent (safe to run multiple times)",
+        "Enables WAL mode on SQLite"
+      ],
+      "verification_steps": [
+        "Run twice without error",
+        "dns_settings has exactly 1 row"
+      ],
+      "dependencies": ["F03"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F05",
+      "category": "foundation",
+      "priority": "P0",
+      "agent": "backend-architect",
+      "model": "sonnet",
+      "description": "Login/logout with Flask-Login, password hashing, CSRF protection",
+      "acceptance_criteria": [
+        "Login page at /login with username/password form",
+        "Passwords hashed with Werkzeug generate_password_hash (pbkdf2:sha256)",
+        "Flask-Login session management with @login_required",
+        "Logout at /logout clears session",
+        "CSRF token on login form via Flask-WTF",
+        "Failed login shows generic error 'Invalid credentials'",
+        "Redirect to /login for unauthenticated requests"
+      ],
+      "verification_steps": [
+        "Access / redirects to /login",
+        "Login with valid credentials redirects to dashboard",
+        "Login with invalid credentials shows error",
+        "Logout returns to login page"
+      ],
+      "dependencies": ["F03"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F06",
+      "category": "foundation",
+      "priority": "P0",
+      "agent": "backend-architect",
+      "model": "haiku",
+      "description": "create_admin.py CLI script to create first admin user",
+      "acceptance_criteria": [
+        "Prompts for username and password interactively",
+        "Validates password minimum length (8 characters)",
+        "Hashes password before storage",
+        "Prevents duplicate usernames",
+        "Accepts --username and --password flags for non-interactive use"
+      ],
+      "verification_steps": [
+        "Run script, create user, login via web",
+        "Running with duplicate username shows error"
+      ],
+      "dependencies": ["F03", "F05"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F07",
+      "category": "foundation",
+      "priority": "P0",
+      "agent": "backend-architect",
+      "model": "sonnet",
+      "description": "Bootstrap 5 base template with navigation, flash messages, responsive layout",
+      "acceptance_criteria": [
+        "Bootstrap 5 via CDN (CSS + JS)",
+        "Navigation bar: Dashboard, Changes, Import, Settings, Health, Logout",
+        "Flash message rendering (success, warning, danger, info)",
+        "Responsive viewport meta tag",
+        "Block placeholders: title, content, scripts",
+        "Footer with app name"
+      ],
+      "verification_steps": [
+        "All pages inherit from base.html",
+        "Nav links correct and highlighted for current page",
+        "Flash messages render with correct styling"
+      ],
+      "dependencies": ["F01"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F08",
+      "category": "foundation",
+      "priority": "P0",
+      "agent": "backend-architect",
+      "model": "haiku",
+      "description": "wsgi.py for PythonAnywhere deployment",
+      "acceptance_criteria": [
+        "Imports and calls create_app()",
+        "Exports app variable for WSGI server",
+        "Compatible with PythonAnywhere WSGI configuration"
+      ],
+      "verification_steps": [
+        "python wsgi.py starts the app without errors",
+        "PythonAnywhere web tab can point to this file"
+      ],
+      "dependencies": ["F01"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F09",
+      "category": "dns-engine",
+      "priority": "P0",
+      "agent": "python-expert",
+      "model": "opus",
+      "description": "Configurable DNS resolver with timeout, retries, multiple nameservers, error classification",
+      "acceptance_criteria": [
+        "Loads settings from dns_settings table (resolvers, timeout, retries)",
+        "Supports multiple nameservers with failover",
+        "Configurable per-query timeout and total lifetime",
+        "TCP fallback for truncated UDP responses",
+        "Classifies errors: NXDOMAIN, SERVFAIL, Timeout, NoAnswer, other",
+        "Returns structured result: {success, records, error_type, error_message}",
+        "Thread-safe (creates own resolver instance per call)"
+      ],
+      "verification_steps": [
+        "Resolves known domains successfully",
+        "Returns classified error for non-existent domains",
+        "Falls back to next nameserver on timeout"
+      ],
+      "dependencies": ["F04"],
+      "estimated_complexity": "L",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_resolver.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F10",
+      "category": "dns-engine",
+      "priority": "P0",
+      "agent": "python-expert",
+      "model": "opus",
+      "description": "Fetch and validate SPF records using checkdmarc + custom logic",
+      "acceptance_criteria": [
+        "Queries TXT records, filters for v=spf1",
+        "Detects multiple SPF records (error condition)",
+        "Parses mechanisms: ip4, ip6, include, a, mx, ptr, exists, redirect",
+        "Counts DNS lookup mechanisms (max 10 per RFC 7208)",
+        "Identifies qualifier: -all (OK), ~all (WARNING), ?all (WARNING), +all (CRITICAL), missing (CRITICAL)",
+        "Returns: {status, record, policy, mechanisms[], lookup_count, warnings[], valid}"
+      ],
+      "verification_steps": [
+        "Domain with -all -> status OK",
+        "Domain with ~all -> status WARNING",
+        "Domain with no SPF -> status CRITICAL",
+        "Domain with >10 lookups -> warning"
+      ],
+      "dependencies": ["F09"],
+      "estimated_complexity": "L",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_spf.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F11",
+      "category": "dns-engine",
+      "priority": "P0",
+      "agent": "python-expert",
+      "model": "opus",
+      "description": "Fetch and validate DMARC records with full field analysis",
+      "acceptance_criteria": [
+        "Queries TXT for _dmarc.{domain}, filters for v=DMARC1",
+        "Parses all tag=value pairs",
+        "Validates p=: none->WARNING, quarantine->OK, reject->OK, missing->CRITICAL",
+        "Validates sp=: same logic, inherits from p= if absent",
+        "Validates rua= and ruf= mailto: URI format",
+        "Warns if ruf present but rua absent",
+        "Notes pct= (warns if <100), aspf= (r/s), adkim= (r/s), fo= (0/1/d/s)",
+        "Returns: {status, record, p, sp, rua, ruf, pct, aspf, adkim, fo, warnings[], valid}"
+      ],
+      "verification_steps": [
+        "p=reject -> OK",
+        "p=none -> WARNING",
+        "No DMARC record -> CRITICAL",
+        "ruf but no rua -> warning"
+      ],
+      "dependencies": ["F09"],
+      "estimated_complexity": "L",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_dmarc.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F12",
+      "category": "dns-engine",
+      "priority": "P0",
+      "agent": "python-expert",
+      "model": "opus",
+      "description": "Fetch and validate DKIM public keys for configured selectors",
+      "acceptance_criteria": [
+        "For each active selector: queries TXT for {selector}._domainkey.{domain}",
+        "Parses DKIM record: v=, k=, p=, t= tags",
+        "Detects empty p= tag (key revoked)",
+        "Decodes base64 public key, determines RSA key length via cryptography lib",
+        "Status: >=2048 bits OK, 1024 bits WARNING, <1024 bits CRITICAL, revoked CRITICAL",
+        "Accepts k=ed25519 as valid algorithm",
+        "Aggregate DKIM status = worst across selectors with valid records",
+        "Returns: [{selector, status, record, key_length, algorithm, valid, error}]"
+      ],
+      "verification_steps": [
+        "Known Google selector -> valid key, 2048 bits",
+        "Non-existent selector -> NXDOMAIN, skip gracefully",
+        "Revoked key (empty p=) -> CRITICAL"
+      ],
+      "dependencies": ["F09"],
+      "estimated_complexity": "L",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_dkim.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F13",
+      "category": "dns-engine",
+      "priority": "P1",
+      "agent": "python-expert",
+      "model": "sonnet",
+      "description": "Check domain against DNS-based blacklists (DNSBL)",
+      "acceptance_criteria": [
+        "Queries at least 3 DNSBL servers: dbl.spamhaus.org, multi.uribl.com, multi.surbl.com",
+        "A record response = listed (WARNING), NXDOMAIN = clean",
+        "Timeout on DNSBL query does not block other checks",
+        "Returns: {status, listed_on[], clean_on[], errors[]}"
+      ],
+      "verification_steps": [
+        "Known clean domain -> OK",
+        "Known listed domain -> WARNING",
+        "DNSBL timeout does not crash engine"
+      ],
+      "dependencies": ["F09"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_spf.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F14",
+      "category": "dns-engine",
+      "priority": "P0",
+      "agent": "python-expert",
+      "model": "sonnet",
+      "description": "Orchestrate all checks for one domain, aggregate results, save to database",
+      "acceptance_criteria": [
+        "Runs SPF, DMARC, DKIM, reputation checks sequentially for a domain",
+        "Computes overall_status = worst of individual statuses",
+        "Measures execution_time_ms",
+        "Saves check_results row",
+        "Updates domains.last_checked_at, domains.current_status",
+        "Updates domains.last_ok_at if overall_status is ok",
+        "Accepts trigger_type parameter (manual/scheduled)",
+        "Handles exceptions gracefully per check (one failure doesn't skip others)"
+      ],
+      "verification_steps": [
+        "Run engine on a domain -> check_results row created",
+        "Domain record updated with new status",
+        "One check failing doesn't prevent others"
+      ],
+      "dependencies": ["F10", "F11", "F12", "F13"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F15",
+      "category": "dns-engine",
+      "priority": "P0",
+      "agent": "python-expert",
+      "model": "sonnet",
+      "description": "Anti-flapping state machine to prevent transient DNS failures from triggering false alerts",
+      "acceptance_criteria": [
+        "Maintains flap_state per domain per check_type",
+        "On success: reset consecutive_failures to 0, update last_success_at",
+        "On failure: increment consecutive_failures, update last_failure_at",
+        "consecutive_failures==0: show actual status",
+        "0 < consecutive_failures < threshold: cap at WARNING",
+        "consecutive_failures >= threshold: show actual status (CRITICAL allowed)",
+        "Threshold loaded from dns_settings.flap_threshold"
+      ],
+      "verification_steps": [
+        "First DNS timeout -> WARNING (not CRITICAL)",
+        "Second consecutive timeout -> CRITICAL (threshold=2)",
+        "Success after failure -> reset, show OK"
+      ],
+      "dependencies": ["F09", "F03"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_anti_flap.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F16",
+      "category": "web-interface",
+      "priority": "P0",
+      "agent": "fullstack-developer",
+      "model": "sonnet",
+      "description": "Dashboard page showing all domains with color-coded status badges",
+      "acceptance_criteria": [
+        "Table: hostname, SPF status, DMARC status, DKIM status, reputation, overall, last checked",
+        "Status badges: green (OK), yellow (WARNING), red (CRITICAL), grey (pending/error)",
+        "Add Domain button/form at top",
+        "Check button per domain row",
+        "Check All button",
+        "Delete button per domain (confirmation dialog)",
+        "Sorted by hostname ascending",
+        "Shows total count and summary (X ok, Y warning, Z critical)",
+        "Login required"
+      ],
+      "verification_steps": [
+        "Dashboard shows all active domains",
+        "Status badges reflect current_status correctly",
+        "Add domain form works with validation",
+        "Delete requires confirmation"
+      ],
+      "dependencies": ["F05", "F07", "F14"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F17",
+      "category": "web-interface",
+      "priority": "P0",
+      "agent": "fullstack-developer",
+      "model": "haiku",
+      "description": "Add a domain to the monitoring list with validation and default DKIM selectors",
+      "acceptance_criteria": [
+        "Form field with hostname validation (valid domain format)",
+        "Normalizes to lowercase, strips whitespace",
+        "Rejects duplicates with user-friendly message",
+        "Creates domain record with added_by = current user",
+        "Auto-creates default DKIM selectors (10 common selectors)",
+        "Optional notes field",
+        "CSRF protection",
+        "Flash success message, redirect to dashboard"
+      ],
+      "verification_steps": [
+        "Add valid domain -> appears in dashboard",
+        "Add duplicate -> error message",
+        "Add invalid format -> validation error"
+      ],
+      "dependencies": ["F03", "F05"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F18",
+      "category": "web-interface",
+      "priority": "P0",
+      "agent": "fullstack-developer",
+      "model": "haiku",
+      "description": "Remove a domain from monitoring (soft delete)",
+      "acceptance_criteria": [
+        "POST request with domain ID",
+        "Sets is_active=False (does not delete data)",
+        "Requires confirmation (JavaScript confirm dialog)",
+        "CSRF protection",
+        "Flash success message",
+        "Domain no longer appears on dashboard"
+      ],
+      "verification_steps": [
+        "Delete domain -> removed from dashboard",
+        "Data still in database (soft delete)"
+      ],
+      "dependencies": ["F03", "F05"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F19",
+      "category": "web-interface",
+      "priority": "P0",
+      "agent": "fullstack-developer",
+      "model": "haiku",
+      "description": "Trigger immediate check for one or all domains from dashboard",
+      "acceptance_criteria": [
+        "Check button per domain triggers check for that domain",
+        "Check All button triggers check for all active domains",
+        "Shows loading indicator during check",
+        "Refreshes status after completion",
+        "Sets trigger_type=manual",
+        "CSRF protection on POST"
+      ],
+      "verification_steps": [
+        "Click Check -> domain status updates",
+        "Click Check All -> all domains checked"
+      ],
+      "dependencies": ["F14", "F16"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F20",
+      "category": "web-interface",
+      "priority": "P0",
+      "agent": "fullstack-developer",
+      "model": "sonnet",
+      "description": "Domain detail page with full check results breakdown",
+      "acceptance_criteria": [
+        "Accessible at /domains/<id>",
+        "Shows hostname, overall status, last checked timestamp",
+        "SPF section: raw record, policy, mechanism count, warnings",
+        "DMARC section: raw record, p, sp, rua, ruf, pct, aspf, adkim, fo, warnings",
+        "DKIM section: per-selector results (selector name, key length, algorithm, status)",
+        "Reputation section: listed/clean blacklists",
+        "DNS errors section (if any)",
+        "Execution time",
+        "Link to history page"
+      ],
+      "verification_steps": [
+        "All sections populated from latest check_results",
+        "Missing records shown as 'No record found'",
+        "Warnings highlighted"
+      ],
+      "dependencies": ["F14", "F16"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F21",
+      "category": "web-interface",
+      "priority": "P1",
+      "agent": "fullstack-developer",
+      "model": "haiku",
+      "description": "Add/remove DKIM selectors per domain",
+      "acceptance_criteria": [
+        "Accessible from domain detail page",
+        "List current selectors with active/inactive toggle",
+        "Add new selector form with validation",
+        "Remove selector (soft delete)",
+        "CSRF protection"
+      ],
+      "verification_steps": [
+        "Add custom selector -> appears in list",
+        "Deactivate selector -> not checked on next run"
+      ],
+      "dependencies": ["F03", "F20"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F22",
+      "category": "web-interface",
+      "priority": "P0",
+      "agent": "fullstack-developer",
+      "model": "haiku",
+      "description": "Settings page to configure DNS resolver parameters",
+      "acceptance_criteria": [
+        "Form fields: DNS resolvers (comma-separated IPs), timeout, retries, flap threshold",
+        "Validates IP address format for resolvers",
+        "Validates numeric ranges (timeout 1-30, retries 1-10, threshold 1-5)",
+        "Saves to dns_settings table",
+        "Shows current values pre-filled",
+        "CSRF protection"
+      ],
+      "verification_steps": [
+        "Change resolver IPs -> saved and used on next check",
+        "Invalid IP format -> validation error"
+      ],
+      "dependencies": ["F04", "F05"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F23",
+      "category": "web-interface",
+      "priority": "P1",
+      "agent": "fullstack-developer",
+      "model": "sonnet",
+      "description": "Upload file of email addresses, extract unique domains, add new ones",
+      "acceptance_criteria": [
+        "Upload form accepting .txt and .csv files",
+        "Max file size 1MB",
+        "Parses emails using regex: extracts domain part after @",
+        "Deduplicates domains",
+        "Skips domains already in the system",
+        "Adds new domains with default DKIM selectors",
+        "Shows summary: X new, Y already existed, Z invalid lines",
+        "CSRF protection, file validation"
+      ],
+      "verification_steps": [
+        "Upload 10 emails from 5 domains, 2 already exist -> 3 added",
+        "Upload non-.txt/.csv -> rejected",
+        "Upload >1MB -> rejected"
+      ],
+      "dependencies": ["F17"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_ingest.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F24",
+      "category": "history",
+      "priority": "P0",
+      "agent": "frontend-architect",
+      "model": "opus",
+      "description": "Compare consecutive check results and detect changes in DNS records",
+      "acceptance_criteria": [
+        "After each check, compares current vs previous check_results for same domain",
+        "Detects changes in: spf_record, dmarc_record, dkim key changes",
+        "Classifies severity: CRITICAL (policy downgrade, key revoked), WARNING (policy change, key length decrease), INFO (text change, same policy)",
+        "Writes to change_log table",
+        "Skips comparison for first-ever check"
+      ],
+      "verification_steps": [
+        "SPF record changes -> change_log entry created",
+        "DMARC policy none->reject -> info entry",
+        "DMARC policy reject->none -> critical entry"
+      ],
+      "dependencies": ["F14"],
+      "estimated_complexity": "L",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_diff_engine.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F25",
+      "category": "history",
+      "priority": "P0",
+      "agent": "frontend-architect",
+      "model": "sonnet",
+      "description": "Timeline view of check results and changes for a specific domain",
+      "acceptance_criteria": [
+        "Accessible at /domains/<id>/history",
+        "Chart.js line/bar chart: status over time (OK=green, WARNING=yellow, CRITICAL=red)",
+        "Last 30 data points by default",
+        "Change log table below chart: date, field changed, old value, new value, severity",
+        "Shows last checked and last OK timestamps"
+      ],
+      "verification_steps": [
+        "Chart renders with correct color coding",
+        "Change log shows recent changes",
+        "Empty history shows appropriate message"
+      ],
+      "dependencies": ["F24", "F20"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F26",
+      "category": "history",
+      "priority": "P1",
+      "agent": "frontend-architect",
+      "model": "sonnet",
+      "description": "Recent changes across all monitored domains",
+      "acceptance_criteria": [
+        "Accessible at /changes",
+        "Table: date, domain, check type, field changed, old -> new, severity",
+        "Sorted by date descending",
+        "Filterable by severity (info/warning/critical)",
+        "Paginated (25 per page)",
+        "Links to domain detail page"
+      ],
+      "verification_steps": [
+        "Shows changes from all domains",
+        "Severity filter works",
+        "Pagination works"
+      ],
+      "dependencies": ["F24"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F27",
+      "category": "history",
+      "priority": "P0",
+      "agent": "frontend-architect",
+      "model": "sonnet",
+      "description": "JSON API endpoints for Chart.js and AJAX dashboard refresh",
+      "acceptance_criteria": [
+        "GET /api/domains/<id>/history -> {labels[], datasets: {ok[], warning[], critical[]}}",
+        "GET /api/domains/<id>/status -> {overall_status, spf_status, dmarc_status, dkim_status, reputation_status, last_checked}",
+        "GET /api/dashboard/summary -> {total, ok, warning, critical, pending}",
+        "All endpoints require authentication (401 if not logged in)",
+        "JSON responses with proper content-type"
+      ],
+      "verification_steps": [
+        "API returns valid JSON",
+        "Unauthenticated request returns 401",
+        "Chart data matches database records"
+      ],
+      "dependencies": ["F05", "F03"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F28",
+      "category": "history",
+      "priority": "P1",
+      "agent": "frontend-architect",
+      "model": "sonnet",
+      "description": "Client-side Chart.js rendering for domain history",
+      "acceptance_criteria": [
+        "Chart.js loaded via CDN in base template",
+        "charts.js module fetches data from API, renders chart",
+        "Stacked bar or line chart with color-coded statuses",
+        "Responsive, works on mobile",
+        "Shows last 30 checks by default",
+        "Tooltip shows date and full status on hover"
+      ],
+      "verification_steps": [
+        "Chart renders correctly in domain history page",
+        "Chart is responsive on different screen sizes"
+      ],
+      "dependencies": ["F27"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F29",
+      "category": "history",
+      "priority": "P2",
+      "agent": "frontend-architect",
+      "model": "haiku",
+      "description": "Auto-refresh dashboard status without full page reload",
+      "acceptance_criteria": [
+        "dashboard.js polls /api/dashboard/summary every 60 seconds",
+        "Updates status badges and summary counts",
+        "Visual indicator when refresh is in progress",
+        "Stops polling when tab is not visible (Page Visibility API)"
+      ],
+      "verification_steps": [
+        "Status changes reflected without page reload",
+        "Polling stops when switching tabs"
+      ],
+      "dependencies": ["F27"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F30",
+      "category": "history",
+      "priority": "P1",
+      "agent": "frontend-architect",
+      "model": "sonnet",
+      "description": "Health page showing system metrics, DNS resolver status, and recent logs",
+      "acceptance_criteria": [
+        "Accessible at /health (login required)",
+        "Shows: total domains monitored, domains checked today, DNS errors today",
+        "Shows: last scheduled run timestamp, last scheduled run duration",
+        "Shows: database file size",
+        "Shows: configured DNS resolvers and their reachability status",
+        "Simple structured log viewer: last 50 check events"
+      ],
+      "verification_steps": [
+        "Metrics reflect actual database state",
+        "Page loads within 2 seconds",
+        "Log entries show recent activity"
+      ],
+      "dependencies": ["F03", "F14"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F31",
+      "category": "qa-ops",
+      "priority": "P0",
+      "agent": "quality-engineer",
+      "model": "sonnet",
+      "description": "Standalone Python script for PythonAnywhere daily scheduled task",
+      "acceptance_criteria": [
+        "Imports app.checker.engine and app.models",
+        "Creates Flask app context for database access",
+        "Iterates all active domains, runs full check on each",
+        "Sets trigger_type=scheduled",
+        "Logs start/end time and results to stdout",
+        "Handles exceptions per domain (one failure doesn't stop others)",
+        "Exits with code 0 on success, 1 on fatal error",
+        "Accepts --domain flag to check a single domain"
+      ],
+      "verification_steps": [
+        "Run script manually -> all domains checked",
+        "One domain failure doesn't stop others",
+        "Logs are readable and structured"
+      ],
+      "dependencies": ["F14"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F32",
+      "category": "qa-ops",
+      "priority": "P1",
+      "agent": "quality-engineer",
+      "model": "haiku",
+      "description": "Consistent structured logging across the application",
+      "acceptance_criteria": [
+        "Logger configured in app factory: %(asctime)s %(levelname)s %(name)s %(message)s",
+        "Log levels: DEBUG for DNS queries, INFO for check results, WARNING for issues, ERROR for failures",
+        "Checker modules use named loggers (checker.spf, checker.dmarc)",
+        "Web routes log significant actions (login, domain add/delete, check trigger)",
+        "Logs to stdout/stderr (PythonAnywhere captures)",
+        "No sensitive data in logs"
+      ],
+      "verification_steps": [
+        "Logs appear in PythonAnywhere server log",
+        "Log format is consistent and parseable",
+        "No sensitive data leaked"
+      ],
+      "dependencies": ["F01"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F33",
+      "category": "qa-ops",
+      "priority": "P0",
+      "agent": "quality-engineer",
+      "model": "opus",
+      "description": "Security review and hardening across all modules",
+      "acceptance_criteria": [
+        "All forms have CSRF tokens",
+        "All user inputs validated and sanitized",
+        "SQL injection impossible (parameterized queries via SQLAlchemy)",
+        "XSS prevention: Jinja2 autoescaping enabled",
+        "File upload restrictions: .txt/.csv only, max 1MB, no path traversal",
+        "Session security: HTTPOnly cookies, SameSite=Lax",
+        "No debug mode in production",
+        "SECRET_KEY not hardcoded",
+        "Password hash uses Werkzeug pbkdf2:sha256 with salt",
+        "Rate limiting on check endpoints (max 1 per domain per 60s)"
+      ],
+      "verification_steps": [
+        "CSRF token present on every form",
+        "SQL injection attempt via domain name fails safely",
+        "File upload of .exe rejected",
+        "Rapid check requests rate-limited"
+      ],
+      "dependencies": ["F01", "F05", "F16", "F22", "F23"],
+      "estimated_complexity": "L",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F34",
+      "category": "qa-ops",
+      "priority": "P0",
+      "agent": "quality-engineer",
+      "model": "opus",
+      "description": "Unit tests for all checker modules with mocked DNS responses",
+      "acceptance_criteria": [
+        "test_spf.py: hard fail, soft fail, neutral, missing record, multiple records, >10 lookups",
+        "test_dmarc.py: all policy values, missing fields, rua/ruf validation, pct<100",
+        "test_dkim.py: valid key, short key, revoked key, missing selector, ed25519",
+        "test_resolver.py: timeout, NXDOMAIN, SERVFAIL, TCP fallback",
+        "test_anti_flap.py: state transitions (stable->degraded->confirmed->stable)",
+        "All DNS calls mocked (no real network in tests)",
+        "pytest tests/ passes with 0 failures"
+      ],
+      "verification_steps": [
+        "pytest tests/ passes with 0 failures",
+        "All checker edge cases covered"
+      ],
+      "dependencies": ["F09", "F10", "F11", "F12", "F13", "F14", "F15"],
+      "estimated_complexity": "L",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F35",
+      "category": "qa-ops",
+      "priority": "P1",
+      "agent": "quality-engineer",
+      "model": "sonnet",
+      "description": "Tests for authentication and main web routes",
+      "acceptance_criteria": [
+        "test_routes.py: login/logout, dashboard access, add/delete domain, settings save",
+        "Test unauthenticated access redirects to login",
+        "Test CSRF validation",
+        "Flask test client used (no real server)"
+      ],
+      "verification_steps": [
+        "pytest tests/test_routes.py passes"
+      ],
+      "dependencies": ["F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_routes.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F36",
+      "category": "qa-ops",
+      "priority": "P1",
+      "agent": "quality-engineer",
+      "model": "sonnet",
+      "description": "Tests for change detection engine and email list import",
+      "acceptance_criteria": [
+        "test_diff_engine.py: SPF change detection, DMARC policy downgrade, DKIM key change",
+        "test_ingest.py: email parsing, domain extraction, deduplication, invalid lines"
+      ],
+      "verification_steps": [
+        "pytest tests/test_diff_engine.py tests/test_ingest.py passes"
+      ],
+      "dependencies": ["F23", "F24"],
+      "estimated_complexity": "M",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": "tests/test_diff_engine.py",
+      "test_count": 0,
+      "tested_at": null
+    },
+    {
+      "id": "F37",
+      "category": "qa-ops",
+      "priority": "P1",
+      "agent": "quality-engineer",
+      "model": "haiku",
+      "description": "PythonAnywhere deployment guide in code comments",
+      "acceptance_criteria": [
+        "Steps documented in wsgi.py and scheduled_check.py comments",
+        "Covers: upload files, create virtualenv, install requirements, init DB, create admin, configure WSGI, add scheduled task",
+        "Notes: Hacker plan required for DNS queries",
+        "Notes: SQLite path must use absolute path on PythonAnywhere"
+      ],
+      "verification_steps": [
+        "Following the steps results in working deployment"
+      ],
+      "dependencies": ["F08", "F31"],
+      "estimated_complexity": "S",
+      "passes": false,
+      "implemented_at": null,
+      "test_file": null,
+      "test_count": 0,
+      "tested_at": null
+    }
+  ]
+}

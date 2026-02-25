@@ -6,6 +6,7 @@ Provides a UI for managing DNS resolver configuration (DnsSettings singleton).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from flask import flash, redirect, render_template, url_for
@@ -15,6 +16,8 @@ from app import db
 from app.settings import bp
 from app.settings.forms import DnsSettingsForm
 from app.models import DnsSettings
+
+logger = logging.getLogger(__name__)
 
 
 @bp.route("/", methods=["GET", "POST"])
@@ -45,6 +48,14 @@ def index():
         dns_settings.updated_at = datetime.now(timezone.utc)
         dns_settings.updated_by = current_user.id
         db.session.commit()
+        logger.info(
+            "DNS settings updated: resolvers=%r timeout=%.1fs retries=%d flap_threshold=%d user=%r",
+            resolver_lines,
+            dns_settings.timeout_seconds,
+            dns_settings.retries,
+            dns_settings.flap_threshold,
+            current_user.username,
+        )
         flash("DNS settings saved successfully.", "success")
         return redirect(url_for("settings.index"))
 

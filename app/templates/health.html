@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block title %}System Health – DNS Watcher{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-heart-pulse me-2"></i>System Health</h2>
+  <span class="text-muted small">
+    <i class="bi bi-clock me-1"></i>Page loaded at {{ now().strftime('%Y-%m-%d %H:%M:%S') }} UTC
+  </span>
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-globe fs-3 text-primary"></i>
+        <div class="fs-2 fw-bold mt-1">{{ total_domains }}</div>
+        <div class="text-muted small">Domains Monitored</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-check2-circle fs-3 text-success"></i>
+        <div class="fs-2 fw-bold mt-1">{{ checked_today }}</div>
+        <div class="text-muted small">Checked Today</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-exclamation-triangle fs-3 text-danger"></i>
+        <div class="fs-2 fw-bold mt-1">{{ errors_today }}</div>
+        <div class="text-muted small">DNS Errors Today</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body text-center">
+        <i class="bi bi-database fs-3 text-secondary"></i>
+        <div class="fs-2 fw-bold mt-1">
+          {% if db_size is not none %}
+            {% if db_size > 1048576 %}
+              {{ "%.1f"|format(db_size / 1048576) }} MB
+            {% elif db_size > 1024 %}
+              {{ "%.1f"|format(db_size / 1024) }} KB
+            {% else %}
+              {{ db_size }} B
+            {% endif %}
+          {% else %}
+            N/A
+          {% endif %}
+        </div>
+        <div class="text-muted small">Database Size</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scheduler info + DNS resolvers -->
+<div class="row g-3 mb-4">
+  <!-- Last scheduled run -->
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">
+        <i class="bi bi-calendar-check me-1"></i>Last Scheduled Run
+      </div>
+      <div class="card-body">
+        {% if last_run_at %}
+          <dl class="row mb-0">
+            <dt class="col-sm-5">Timestamp</dt>
+            <dd class="col-sm-7">{{ last_run_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</dd>
+            <dt class="col-sm-5">Duration</dt>
+            <dd class="col-sm-7">
+              {% if last_run_duration %}
+                {% if last_run_duration > 1000 %}
+                  {{ "%.1f"|format(last_run_duration / 1000) }}s
+                {% else %}
+                  {{ last_run_duration }}ms
+                {% endif %}
+              {% else %}
+                N/A
+              {% endif %}
+            </dd>
+          </dl>
+        {% else %}
+          <p class="text-muted mb-0">No scheduled runs recorded yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- DNS Resolvers -->
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header">
+        <i class="bi bi-hdd-network me-1"></i>DNS Resolvers
+        {% if dns_settings %}
+          <span class="float-end small text-muted">
+            timeout={{ dns_settings.timeout_seconds }}s,
+            retries={{ dns_settings.retries }},
+            flap_threshold={{ dns_settings.flap_threshold }}
+          </span>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Resolver</th>
+              <th class="text-center">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rs in resolver_statuses %}
+            <tr>
+              <td><code>{{ rs.resolver }}</code></td>
+              <td class="text-center">
+                {% if rs.reachable %}
+                  <span class="badge bg-success"><i class="bi bi-check-lg"></i> Reachable</span>
+                {% else %}
+                  <span class="badge bg-danger"><i class="bi bi-x-lg"></i> Unreachable</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Recent check events log -->
+<div class="card shadow-sm">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-journal-text me-1"></i>Recent Check Events</span>
+    <span class="badge bg-secondary">Last 50</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Time</th>
+          <th>Domain</th>
+          <th>Trigger</th>
+          <th>Overall</th>
+          <th>SPF</th>
+          <th>DMARC</th>
+          <th>DKIM</th>
+          <th>Reputation</th>
+          <th class="text-end">Duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if recent_checks %}
+          {% for r in recent_checks %}
+          <tr>
+            <td class="small text-muted text-nowrap">{{ r.checked_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>
+              {% if r.domain %}
+                <a href="{{ url_for('dashboard.domain_detail', domain_id=r.domain_id) }}"
+                   class="text-decoration-none">
+                  {{ r.domain.hostname }}
+                </a>
+              {% else %}
+                <span class="text-muted">---</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.trigger_type == 'scheduled' %}
+                <span class="badge bg-secondary">Scheduled</span>
+              {% else %}
+                <span class="badge bg-primary">Manual</span>
+              {% endif %}
+            </td>
+            <td>
+              {% set s = r.overall_status %}
+              {% if s == 'ok' %}
+                <span class="badge bg-success">OK</span>
+              {% elif s == 'warning' %}
+                <span class="badge bg-warning text-dark">Warn</span>
+              {% elif s == 'critical' %}
+                <span class="badge bg-danger">Crit</span>
+              {% else %}
+                <span class="badge bg-secondary">{{ s }}</span>
+              {% endif %}
+            </td>
+            {% for status in [r.spf_status, r.dmarc_status, r.dkim_status, r.reputation_status] %}
+            <td>
+              {% if status == 'ok' %}
+                <span class="text-success"><i class="bi bi-check-circle-fill"></i></span>
+              {% elif status == 'warning' %}
+                <span class="text-warning"><i class="bi bi-exclamation-triangle-fill"></i></span>
+              {% elif status == 'critical' or status == 'error' %}
+                <span class="text-danger"><i class="bi bi-x-circle-fill"></i></span>
+              {% elif status %}
+                <span class="text-muted"><i class="bi bi-dash-circle"></i></span>
+              {% else %}
+                <span class="text-muted">-</span>
+              {% endif %}
+            </td>
+            {% endfor %}
+            <td class="text-end small text-muted">
+              {% if r.execution_time_ms %}
+                {% if r.execution_time_ms > 1000 %}
+                  {{ "%.1f"|format(r.execution_time_ms / 1000) }}s
+                {% else %}
+                  {{ r.execution_time_ms }}ms
+                {% endif %}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-muted py-4">No check events recorded yet.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

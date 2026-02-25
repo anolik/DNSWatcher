@@ -132,6 +132,11 @@ def run_domain_check(
     )
     db.session.add(check_result)
 
+    # ---- Detect changes ----
+    from app.checker.diff_engine import detect_changes
+
+    detect_changes(domain.id, check_result)
+
     # ---- Update Domain fields ----
     domain.last_checked_at = now
     domain.current_status = overall_status

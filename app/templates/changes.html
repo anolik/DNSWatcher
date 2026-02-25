@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Changes – DNS Watcher{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-clock-history me-2"></i>Change Log</h2>
+  <span class="text-muted">{{ pagination.total }} total changes</span>
+</div>
+
+<!-- Severity filter buttons -->
+<div class="mb-3">
+  <div class="btn-group btn-group-sm" role="group" aria-label="Filter by severity">
+    <a href="{{ url_for('history.index') }}"
+       class="btn {% if not severity_filter %}btn-secondary{% else %}btn-outline-secondary{% endif %}">
+      All
+    </a>
+    <a href="{{ url_for('history.index', severity='critical') }}"
+       class="btn {% if severity_filter == 'critical' %}btn-danger{% else %}btn-outline-danger{% endif %}">
+      <i class="bi bi-x-circle me-1"></i>Critical
+    </a>
+    <a href="{{ url_for('history.index', severity='warning') }}"
+       class="btn {% if severity_filter == 'warning' %}btn-warning{% else %}btn-outline-warning{% endif %}">
+      <i class="bi bi-exclamation-triangle me-1"></i>Warning
+    </a>
+    <a href="{{ url_for('history.index', severity='info') }}"
+       class="btn {% if severity_filter == 'info' %}btn-info{% else %}btn-outline-info{% endif %}">
+      <i class="bi bi-info-circle me-1"></i>Info
+    </a>
+  </div>
+</div>
+
+<!-- Changes table -->
+<div class="card shadow-sm">
+  <div class="card-header">
+    Recent DNS record changes across all monitored domains
+    {% if severity_filter %}
+      <span class="ms-2 badge bg-secondary">Filtered: {{ severity_filter }}</span>
+    {% endif %}
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Detected</th>
+          <th>Domain</th>
+          <th>Type</th>
+          <th>Field Changed</th>
+          <th>Old Value</th>
+          <th>New Value</th>
+          <th>Severity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if changes %}
+          {% for c in changes %}
+          <tr>
+            <td class="small text-muted text-nowrap">{{ c.detected_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>
+              {% if c.domain %}
+                <a href="{{ url_for('dashboard.domain_detail', domain_id=c.domain_id) }}"
+                   class="text-decoration-none">
+                  {{ c.domain.hostname }}
+                </a>
+              {% else %}
+                <span class="text-muted">---</span>
+              {% endif %}
+            </td>
+            <td><code>{{ c.check_type }}</code></td>
+            <td>{{ c.field_changed }}</td>
+            <td class="text-truncate" style="max-width: 200px;">
+              <small>{{ c.old_value or '---' }}</small>
+            </td>
+            <td class="text-truncate" style="max-width: 200px;">
+              <small>{{ c.new_value or '---' }}</small>
+            </td>
+            <td>
+              {% if c.severity == 'critical' %}
+                <span class="badge bg-danger">Critical</span>
+              {% elif c.severity == 'warning' %}
+                <span class="badge bg-warning text-dark">Warning</span>
+              {% else %}
+                <span class="badge bg-info text-dark">Info</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="7" class="text-center text-muted py-4">
+              {% if severity_filter %}
+                No {{ severity_filter }} changes recorded.
+                <a href="{{ url_for('history.index') }}">Show all changes</a>
+              {% else %}
+                No changes recorded yet. Changes will appear here after the second check of a domain.
+              {% endif %}
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if pagination.pages > 1 %}
+  <div class="card-footer">
+    <nav aria-label="Change log pagination">
+      <ul class="pagination pagination-sm justify-content-center mb-0">
+        {% if pagination.has_prev %}
+        <li class="page-item">
+          <a class="page-link"
+             href="?page={{ pagination.prev_num }}{% if severity_filter %}&severity={{ severity_filter }}{% endif %}">
+            Previous
+          </a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><span class="page-link">Previous</span></li>
+        {% endif %}
+
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link"
+                 href="?page={{ p }}{% if severity_filter %}&severity={{ severity_filter }}{% endif %}">
+                {{ p }}
+              </a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">...</span></li>
+          {% endif %}
+        {% endfor %}
+
+        {% if pagination.has_next %}
+        <li class="page-item">
+          <a class="page-link"
+             href="?page={{ pagination.next_num }}{% if severity_filter %}&severity={{ severity_filter }}{% endif %}">
+            Next
+          </a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><span class="page-link">Next</span></li>
+        {% endif %}
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -3,9 +3,17 @@ Ingest blueprint routes - F23.
 
 Accepts an uploaded file containing email addresses and extracts unique
 domains, adding any that are not already tracked in the database.
+
+Security controls (F33):
+- Only .txt and .csv file extensions are accepted.
+- File size is capped at 1 MB to prevent memory exhaustion.
+- Filenames are never used in filesystem paths (no path traversal risk).
 """
 
 from __future__ import annotations
+
+import logging
+import os
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -14,6 +22,18 @@ from app import db
 from app.ingest import bp
 from app.ingest.parser import parse_email_file
 from app.models import DkimSelector, Domain
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Upload security constants
+# ---------------------------------------------------------------------------
+
+# Maximum file size accepted for upload (1 MiB).
+_MAX_UPLOAD_BYTES: int = 1 * 1024 * 1024
+
+# Allowed file extensions (lowercase, including the leading dot).
+_ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".txt", ".csv"})
 
 _DEFAULT_SELECTORS = [
     "default",
@@ -50,9 +70,47 @@ def index():
             flash("No file selected. Please choose a file to upload.", "warning")
             return redirect(url_for("ingest.index"))
 
-        # Read and decode file content
+        # ------------------------------------------------------------------
+        # Security: validate file extension (F33)
+        # Use only the extension from the original filename; never use the
+        # filename itself as a filesystem path to avoid path traversal.
+        # ------------------------------------------------------------------
+        original_name = uploaded_file.filename or ""
+        _, ext = os.path.splitext(original_name.lower())
+        if ext not in _ALLOWED_EXTENSIONS:
+            logger.warning(
+                "Upload rejected - disallowed extension: ext=%r user=%r",
+                ext,
+                current_user.username,
+            )
+            flash(
+                "Invalid file type. Only .txt and .csv files are accepted.",
+                "danger",
+            )
+            return redirect(url_for("ingest.index"))
+
+        # ------------------------------------------------------------------
+        # Security: enforce 1 MB size limit (F33)
+        # Read one byte beyond the limit so we can detect oversized files
+        # without storing the entire content first.
+        # ------------------------------------------------------------------
         try:
-            raw_bytes = uploaded_file.read()
+            raw_bytes = uploaded_file.read(_MAX_UPLOAD_BYTES + 1)
+        except Exception:
+            flash("Could not read the uploaded file. Please upload a plain-text file.", "danger")
+            return redirect(url_for("ingest.index"))
+
+        if len(raw_bytes) > _MAX_UPLOAD_BYTES:
+            logger.warning(
+                "Upload rejected - file too large: user=%r filename=%r",
+                current_user.username,
+                original_name,
+            )
+            flash("File is too large. Maximum allowed size is 1 MB.", "danger")
+            return redirect(url_for("ingest.index"))
+
+        # Decode the bytes now that size and extension are verified.
+        try:
             content = raw_bytes.decode("utf-8", errors="replace")
         except Exception:
             flash("Could not read the uploaded file. Please upload a plain-text file.", "danger")
@@ -108,6 +166,16 @@ def index():
                 added.append(hostname)
 
         db.session.commit()
+
+        logger.info(
+            "File import complete: added=%d reactivated=%d skipped=%d invalid_lines=%d user=%r filename=%r",
+            len(added),
+            len(reactivated),
+            len(skipped),
+            len(invalid_lines),
+            current_user.username,
+            uploaded_file.filename,
+        )
 
         # Build summary flash message
         parts: list[str] = []

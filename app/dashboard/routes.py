@@ -12,6 +12,7 @@ Handles:
 
 from __future__ import annotations
 
+import logging
 import re
 
 from flask import abort, flash, redirect, render_template, request, url_for
@@ -21,6 +22,9 @@ from app import db
 from app.dashboard import bp
 from app.dashboard.forms import AddDomainForm, AddSelectorForm
 from app.models import DkimSelector, Domain
+from app.utils.rate_limit import is_rate_limited
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -115,16 +119,32 @@ def add_domain():
 
     if existing is not None:
         if existing.is_active:
+            logger.info(
+                "Add domain skipped (already active): hostname=%r user=%r",
+                hostname,
+                current_user.username,
+            )
             flash(f"Domain '{hostname}' is already being monitored.", "warning")
         else:
             existing.is_active = True
             existing.current_status = "pending"
             db.session.commit()
+            logger.info(
+                "Domain reactivated: hostname=%r user=%r",
+                hostname,
+                current_user.username,
+            )
             flash(f"Domain '{hostname}' has been reactivated.", "success")
         return redirect(url_for("dashboard.index"))
 
     _create_domain_with_selectors(hostname, current_user.id)
     db.session.commit()
+    logger.info(
+        "Domain added: hostname=%r user=%r selectors=%d",
+        hostname,
+        current_user.username,
+        len(_DEFAULT_SELECTORS),
+    )
     flash(f"Domain '{hostname}' added with {len(_DEFAULT_SELECTORS)} default DKIM selectors.", "success")
     return redirect(url_for("dashboard.index"))
 
@@ -144,6 +164,12 @@ def delete_domain(domain_id: int):
 
     domain.is_active = False
     db.session.commit()
+    logger.info(
+        "Domain deleted (soft): hostname=%r domain_id=%d user=%r",
+        domain.hostname,
+        domain.id,
+        current_user.username,
+    )
     flash(f"Domain '{domain.hostname}' has been removed from monitoring.", "info")
     return redirect(url_for("dashboard.index"))
 
@@ -161,15 +187,36 @@ def check_domain(domain_id: int):
     if domain is None or not domain.is_active:
         abort(404)
 
+    # Rate limit: allow at most one manual check per domain per 60 seconds.
+    # This prevents accidental double-clicks and deliberate hammering.
+    if is_rate_limited("domain", domain.id):
+        flash(
+            f"Please wait at least 60 seconds before re-checking '{domain.hostname}'.",
+            "warning",
+        )
+        return redirect(request.referrer or url_for("dashboard.index"))
+
+    logger.info(
+        "Manual check triggered: hostname=%r domain_id=%d user=%r",
+        domain.hostname,
+        domain.id,
+        current_user.username,
+    )
     try:
         from app.checker.engine import run_domain_check
 
-        run_domain_check(domain, trigger_type="manual")
+        result = run_domain_check(domain, trigger_type="manual")
         db.session.commit()
+        logger.info(
+            "Manual check complete: hostname=%r overall_status=%r",
+            domain.hostname,
+            result.overall_status,
+        )
         flash(f"Check completed for '{domain.hostname}'.", "success")
     except ImportError:
         flash("Check engine not yet available.", "warning")
     except Exception as exc:  # noqa: BLE001
+        logger.exception("Manual check failed: hostname=%r error=%s", domain.hostname, exc)
         flash(f"Check failed for '{domain.hostname}': {exc}", "danger")
 
     return redirect(request.referrer or url_for("dashboard.index"))
@@ -179,15 +226,31 @@ def check_domain(domain_id: int):
 @login_required
 def check_all_domains():
     """Trigger manual checks for all active domains."""
+    # Rate limit the global "check all" action with entity_id=0 (sentinel).
+    # 60 seconds between consecutive check-all requests prevents runaway load.
+    if is_rate_limited("all", 0):
+        flash(
+            "Please wait at least 60 seconds before running another full check.",
+            "warning",
+        )
+        return redirect(url_for("dashboard.index"))
+
+    logger.info("Manual check-all triggered: user=%r", current_user.username)
     try:
         from app.checker.engine import run_all_checks
 
-        run_all_checks(trigger_type="manual")
+        results = run_all_checks(trigger_type="manual")
         db.session.commit()
+        logger.info(
+            "Manual check-all complete: domains_checked=%d user=%r",
+            len(results),
+            current_user.username,
+        )
         flash("Manual check completed for all active domains.", "success")
     except ImportError:
         flash("Check engine not yet available.", "warning")
     except Exception as exc:  # noqa: BLE001
+        logger.exception("Manual check-all failed: error=%s user=%r", exc, current_user.username)
         flash(f"Check-all failed: {exc}", "danger")
 
     return redirect(url_for("dashboard.index"))

@@ -304,8 +304,11 @@
 
 {# ── History link ── #}
 <div class="mt-3">
-  <a href="{{ url_for('history.index') }}" class="btn btn-outline-secondary btn-sm">
-    <i class="bi bi-clock-history me-1"></i>View Change History
+  <a href="{{ url_for('history.domain_history', domain_id=domain.id) }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-clock-history me-1"></i>View Check History &amp; Changes
+  </a>
+  <a href="{{ url_for('history.index') }}" class="btn btn-outline-secondary btn-sm ms-1">
+    <i class="bi bi-journal-text me-1"></i>All Changes
   </a>
 </div>
 

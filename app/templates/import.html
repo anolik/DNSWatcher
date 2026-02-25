@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Import Domains - SPF/DMARC/DKIM Watcher{% endblock %}
+
+{% block content %}
+
+<h1 class="h3 mb-4">
+  <i class="bi bi-upload me-2"></i>Import Domains from Email File
+</h1>
+
+<div class="row">
+  <div class="col-12 col-lg-7">
+    <div class="card mb-4">
+      <div class="card-header">
+        <i class="bi bi-file-earmark-text me-1"></i>Upload Email List
+      </div>
+      <div class="card-body">
+        <form method="post"
+              action="{{ url_for('ingest.index') }}"
+              enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+          <div class="mb-3">
+            <label for="email_file" class="form-label fw-semibold">
+              Email list file
+            </label>
+            <input
+              class="form-control"
+              type="file"
+              id="email_file"
+              name="email_file"
+              accept=".txt,.csv,.log,.eml,.msg,text/plain"
+            />
+            <div class="form-text">
+              Upload a plain-text file containing email addresses.
+              The file will be scanned line by line; domains are extracted
+              from any valid email address found on each line.
+              Maximum file size: 1 MB.
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-cloud-upload me-1"></i>Import
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── Help sidebar ── #}
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-question-circle me-1"></i>How It Works
+      </div>
+      <div class="card-body small text-muted">
+        <ol class="ps-3 mb-0">
+          <li class="mb-1">
+            Upload any plain-text file that contains email addresses
+            (e.g. an exported contact list, log file, or CSV).
+          </li>
+          <li class="mb-1">
+            The importer extracts the domain part from every email address
+            it finds (e.g. <code>user@example.com</code> yields
+            <code>example.com</code>).
+          </li>
+          <li class="mb-1">
+            Duplicate domains in the file are automatically deduplicated.
+          </li>
+          <li class="mb-1">
+            Domains already in the system are skipped. Inactive domains
+            are reactivated.
+          </li>
+          <li>
+            Each new domain is created with 10 default DKIM selectors.
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <i class="bi bi-file-text me-1"></i>Example File Content
+      </div>
+      <div class="card-body">
+        <pre class="mb-0 small text-muted">alice@example.com
+bob@another-domain.org
+carol@subdomain.company.net
+This line has no email - it will be skipped
+dave@example.com</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

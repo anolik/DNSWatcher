@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - SPF/DMARC/DKIM Watcher{% endblock %}
+
+{% block content %}
+
+<h1 class="h3 mb-4">
+  <i class="bi bi-gear me-2"></i>Settings
+</h1>
+
+<div class="row">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-hdd-network me-1"></i>DNS Resolver Configuration
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('settings.index') }}">
+          {{ form.hidden_tag() }}
+
+          {# Resolvers #}
+          <div class="mb-3">
+            <label for="{{ form.resolvers.id }}" class="form-label fw-semibold">
+              {{ form.resolvers.label.text }}
+            </label>
+            {{ form.resolvers(id=form.resolvers.id,
+                              class='form-control font-monospace' + (' is-invalid' if form.resolvers.errors else '')) }}
+            <div class="form-text">
+              Enter one IPv4 address per line. These resolvers are used for all DNS lookups.
+            </div>
+            {% for err in form.resolvers.errors %}
+              <div class="invalid-feedback">{{ err }}</div>
+            {% endfor %}
+          </div>
+
+          <div class="row g-3 mb-3">
+            {# Timeout #}
+            <div class="col-12 col-sm-4">
+              <label for="{{ form.timeout_seconds.id }}" class="form-label fw-semibold">
+                {{ form.timeout_seconds.label.text }}
+              </label>
+              {{ form.timeout_seconds(id=form.timeout_seconds.id,
+                                      class='form-control' + (' is-invalid' if form.timeout_seconds.errors else ''),
+                                      min=1, max=30) }}
+              {% for err in form.timeout_seconds.errors %}
+                <div class="invalid-feedback">{{ err }}</div>
+              {% endfor %}
+            </div>
+
+            {# Retries #}
+            <div class="col-12 col-sm-4">
+              <label for="{{ form.retries.id }}" class="form-label fw-semibold">
+                {{ form.retries.label.text }}
+              </label>
+              {{ form.retries(id=form.retries.id,
+                              class='form-control' + (' is-invalid' if form.retries.errors else ''),
+                              min=1, max=10) }}
+              {% for err in form.retries.errors %}
+                <div class="invalid-feedback">{{ err }}</div>
+              {% endfor %}
+            </div>
+
+            {# Flap threshold #}
+            <div class="col-12 col-sm-4">
+              <label for="{{ form.flap_threshold.id }}" class="form-label fw-semibold">
+                {{ form.flap_threshold.label.text }}
+              </label>
+              {{ form.flap_threshold(id=form.flap_threshold.id,
+                                     class='form-control' + (' is-invalid' if form.flap_threshold.errors else ''),
+                                     min=1, max=5) }}
+              <div class="form-text">
+                Consecutive failures before raising a critical alert.
+              </div>
+              {% for err in form.flap_threshold.errors %}
+                <div class="invalid-feedback">{{ err }}</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div>
+            {{ form.submit() }}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ── Info sidebar ── #}
+  <div class="col-12 col-lg-5 mt-3 mt-lg-0">
+    <div class="card">
+      <div class="card-header">
+        <i class="bi bi-info-circle me-1"></i>About These Settings
+      </div>
+      <div class="card-body small text-muted">
+        <dl class="mb-0">
+          <dt>DNS Resolvers</dt>
+          <dd class="mb-2">
+            IP addresses of the DNS servers used for all SPF, DMARC and DKIM lookups.
+            Multiple servers are tried in order. Defaults: 8.8.8.8, 1.1.1.1, 9.9.9.9.
+          </dd>
+          <dt>Timeout</dt>
+          <dd class="mb-2">
+            Seconds to wait for a DNS response before the query times out.
+            Increase this on slow or unreliable networks.
+          </dd>
+          <dt>Retries</dt>
+          <dd class="mb-2">
+            How many times to retry a failed DNS query before giving up.
+          </dd>
+          <dt>Flap Threshold</dt>
+          <dd class="mb-0">
+            Number of consecutive failures required before an issue is escalated
+            to a critical alert (anti-flapping). Setting this to 1 disables
+            anti-flapping protection.
+          </dd>
+        </dl>
+      </div>
+    </div>
+
+    {% if dns_settings and dns_settings.updated_at %}
+    <div class="card mt-3">
+      <div class="card-body small text-muted">
+        <i class="bi bi-clock me-1"></i>
+        Last saved: {{ dns_settings.updated_at.strftime('%Y-%m-%d %H:%M') }} UTC
+        {% if dns_settings.updated_by_user %}
+          by <strong>{{ dns_settings.updated_by_user.username }}</strong>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}

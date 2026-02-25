@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - SPF/DMARC/DKIM Watcher{% endblock %}
+
+{% block content %}
+
+{# ── Macro: render a coloured status badge ── #}
+{% macro status_badge(status) %}
+  {% if status == 'ok' %}
+    <span class="badge bg-success">OK</span>
+  {% elif status == 'warning' %}
+    <span class="badge bg-warning text-dark">Warning</span>
+  {% elif status == 'critical' %}
+    <span class="badge bg-danger">Critical</span>
+  {% else %}
+    <span class="badge bg-secondary">Pending</span>
+  {% endif %}
+{% endmacro %}
+
+{# ── Page header ── #}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h1 class="h3 mb-0">
+    <i class="bi bi-speedometer2 me-2"></i>Dashboard
+  </h1>
+
+  {# Check All button #}
+  <form method="post" action="{{ url_for('dashboard.check_all_domains') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <button type="submit" class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-arrow-repeat me-1"></i>Check All
+    </button>
+  </form>
+</div>
+
+{# ── Summary bar ── #}
+<div class="alert alert-light border mb-3 py-2">
+  <strong>{{ domains|length }} domain(s):</strong>
+  <span class="ms-2">
+    <span class="badge bg-success">{{ status_counts.ok }}</span> OK
+  </span>
+  <span class="ms-2">
+    <span class="badge bg-warning text-dark">{{ status_counts.warning }}</span> Warning
+  </span>
+  <span class="ms-2">
+    <span class="badge bg-danger">{{ status_counts.critical }}</span> Critical
+  </span>
+  <span class="ms-2">
+    <span class="badge bg-secondary">{{ status_counts.pending }}</span> Pending
+  </span>
+</div>
+
+{# ── Add Domain form ── #}
+<div class="card mb-4">
+  <div class="card-header">
+    <i class="bi bi-plus-circle me-1"></i>Add Domain
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('dashboard.add_domain') }}" class="row g-2 align-items-end">
+      {{ add_form.hidden_tag() }}
+      <div class="col-12 col-md-6 col-lg-4">
+        <label for="{{ add_form.hostname.id }}" class="form-label mb-1">Hostname</label>
+        {{ add_form.hostname(id=add_form.hostname.id) }}
+        {% if add_form.hostname.errors %}
+          {% for err in add_form.hostname.errors %}
+            <div class="invalid-feedback d-block">{{ err }}</div>
+          {% endfor %}
+        {% endif %}
+      </div>
+      <div class="col-auto">
+        {{ add_form.submit() }}
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Domains table ── #}
+{% if domains %}
+<div class="card">
+  <div class="card-header">
+    <i class="bi bi-list-check me-1"></i>Monitored Domains
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Hostname</th>
+          <th class="text-center">SPF</th>
+          <th class="text-center">DMARC</th>
+          <th class="text-center">DKIM</th>
+          <th class="text-center">Reputation</th>
+          <th class="text-center">Overall</th>
+          <th>Last Checked</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for domain in domains %}
+        <tr>
+          <td>
+            <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
+               class="fw-semibold text-decoration-none">
+              {{ domain.hostname }}
+            </a>
+          </td>
+
+          {# Individual sub-statuses from latest check result #}
+          {% set latest = domain.check_results.first() %}
+          <td class="text-center">
+            {{ status_badge(latest.spf_status if latest else None) }}
+          </td>
+          <td class="text-center">
+            {{ status_badge(latest.dmarc_status if latest else None) }}
+          </td>
+          <td class="text-center">
+            {{ status_badge(latest.dkim_status if latest else None) }}
+          </td>
+          <td class="text-center">
+            {{ status_badge(latest.reputation_status if latest else None) }}
+          </td>
+          <td class="text-center">
+            {{ status_badge(domain.current_status) }}
+          </td>
+
+          <td class="text-muted small">
+            {% if domain.last_checked_at %}
+              {{ domain.last_checked_at.strftime('%Y-%m-%d %H:%M') }} UTC
+            {% else %}
+              <em>Never</em>
+            {% endif %}
+          </td>
+
+          <td class="text-end">
+            {# Manual check #}
+            <form method="post"
+                  action="{{ url_for('dashboard.check_domain', domain_id=domain.id) }}"
+                  class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit"
+                      class="btn btn-outline-secondary btn-sm"
+                      title="Run check now">
+                <i class="bi bi-arrow-repeat"></i>
+              </button>
+            </form>
+
+            {# Detail link #}
+            <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
+               class="btn btn-outline-info btn-sm"
+               title="View details">
+              <i class="bi bi-eye"></i>
+            </a>
+
+            {# Selectors link #}
+            <a href="{{ url_for('dashboard.domain_selectors', domain_id=domain.id) }}"
+               class="btn btn-outline-secondary btn-sm"
+               title="Manage DKIM selectors">
+              <i class="bi bi-key"></i>
+            </a>
+
+            {# Delete #}
+            <form method="post"
+                  action="{{ url_for('dashboard.delete_domain', domain_id=domain.id) }}"
+                  class="d-inline"
+                  onsubmit="return confirm('Remove {{ domain.hostname }} from monitoring?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit"
+                      class="btn btn-outline-danger btn-sm"
+                      title="Remove domain">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-inbox display-4 d-block mb-3"></i>
+  <p class="lead">No domains are being monitored yet.</p>
+  <p>Use the form above to add your first domain.</p>
+</div>
+{% endif %}
+
+{% endblock %}

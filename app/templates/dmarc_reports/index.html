@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% from "macros/ui.html" import pagination, modal %}
+{% block title %}DMARC Reports — SPF/DMARC/DKIM Watcher{% endblock %}
+
+{% block content %}
+
+{# ── Page header ── #}
+<div class="flex items-center justify-between mb-6">
+  <h2 class="text-xl font-bold text-light-content-primary dark:text-content-primary">
+    <i class="bi bi-file-earmark-text mr-2"></i>DMARC Reports
+  </h2>
+</div>
+
+{# ── Toolbar ── #}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+
+  {# Domain filter #}
+  <form method="GET" action="{{ url_for('dmarc_reports.index') }}" class="flex items-center gap-2">
+    <label for="domain-filter" class="text-sm font-medium text-light-content-secondary dark:text-content-secondary whitespace-nowrap">
+      <i class="bi bi-funnel mr-1"></i>Filter:
+    </label>
+    <select id="domain-filter" name="domain"
+            class="mica-select text-sm"
+            onchange="this.form.submit()">
+      <option value="">All Domains</option>
+      {% for d in domains %}
+        <option value="{{ d }}" {% if d == domain_filter %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {# Action buttons #}
+  <div class="flex items-center gap-2">
+    {# Fetch Now #}
+    <form method="POST" action="{{ url_for('dmarc_reports.fetch') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="btn-primary">
+        <i class="bi bi-arrow-repeat mr-1"></i>Fetch Now
+      </button>
+    </form>
+
+    {# Upload #}
+    <button type="button" class="btn-secondary" data-modal-open="uploadModal">
+      <i class="bi bi-upload mr-1"></i>Upload
+    </button>
+  </div>
+
+</div>
+
+{# ── Reports table ── #}
+<div class="mica-card overflow-hidden">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-table mr-1.5"></i>Ingested Reports
+      {% if pager.total is defined %}
+        <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ pager.total }})</span>
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="mica-table">
+      <thead>
+        <tr>
+          <th>Date Range</th>
+          <th>Org</th>
+          <th>Policy Domain</th>
+          <th class="text-right">Total</th>
+          <th class="text-right">Pass</th>
+          <th class="text-right">Fail</th>
+          <th>Source</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if pager.items %}
+          {% for report in pager.items %}
+          <tr>
+            {# Date Range #}
+            <td class="whitespace-nowrap text-sm text-light-content-secondary dark:text-content-secondary">
+              {{ report.begin_date|to_tz("%Y-%m-%d") }}
+              <span class="text-light-content-muted dark:text-content-muted mx-1">&rarr;</span>
+              {{ report.end_date|to_tz("%Y-%m-%d") }}
+            </td>
+
+            {# Org #}
+            <td class="font-medium text-light-content-primary dark:text-content-primary">
+              {{ report.org_name }}
+            </td>
+
+            {# Policy Domain #}
+            <td>
+              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ report.policy_domain }}</code>
+            </td>
+
+            {# Total messages #}
+            <td class="text-right tabular-nums text-light-content-secondary dark:text-content-secondary">
+              {{ report.total_messages }}
+            </td>
+
+            {# Pass count #}
+            <td class="text-right">
+              {% if report.pass_count > 0 %}
+                <span class="badge-ok">{{ report.pass_count }}</span>
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted tabular-nums">0</span>
+              {% endif %}
+            </td>
+
+            {# Fail count #}
+            <td class="text-right">
+              {% if report.fail_count > 0 %}
+                <span class="badge-critical">{{ report.fail_count }}</span>
+              {% else %}
+                <span class="badge-ok">0</span>
+              {% endif %}
+            </td>
+
+            {# Source #}
+            <td>
+              {% if report.source == 'auto' %}
+                <span class="badge-info">Auto</span>
+              {% else %}
+                <span class="badge-pending">Manual</span>
+              {% endif %}
+            </td>
+
+            {# Actions #}
+            <td class="text-right">
+              <a href="{{ url_for('dmarc_reports.detail', id=report.id) }}"
+                 class="text-xs font-medium text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300 transition-colors">
+                View <i class="bi bi-chevron-right text-xs"></i>
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="8" class="text-center text-light-content-muted dark:text-content-muted py-10">
+              <i class="bi bi-inbox text-3xl block mb-2 opacity-40"></i>
+              No DMARC reports ingested yet.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {# Pagination #}
+  {% set extra = {} %}
+  {% if domain_filter %}{% set extra = {'domain': domain_filter} %}{% endif %}
+  {{ pagination(pager, 'dmarc_reports.index', extra) }}
+
+</div>
+
+
+{# ── Upload modal ── #}
+{% call modal("uploadModal", "Upload DMARC Report", icon="upload") %}
+<form method="POST"
+      action="{{ url_for('dmarc_reports.upload') }}"
+      enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+  <div class="px-5 py-4 space-y-4">
+
+    {# File input #}
+    <div>
+      <label for="dmarc-file-input"
+             class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+        Report file
+      </label>
+      <input type="file"
+             id="dmarc-file-input"
+             name="dmarc_file"
+             accept=".zip,.gz,.xml"
+             class="mica-input text-sm w-full" />
+      <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+        Accepted formats: .zip, .gz, .xml
+      </p>
+    </div>
+
+  </div>
+
+  {# Modal footer #}
+  <div class="px-5 py-3 border-t border-light-surface-border/20 dark:border-surface-border/10 flex justify-end gap-2">
+    <button type="button"
+            class="btn-secondary"
+            data-modal-close="uploadModal">
+      Cancel
+    </button>
+    <button type="submit" class="btn-primary">
+      <i class="bi bi-cloud-upload mr-1"></i>Import
+    </button>
+  </div>
+
+</form>
+{% endcall %}
+
+{% endblock %}

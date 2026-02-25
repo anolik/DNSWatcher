@@ -1,9 +1,9 @@
 """
 F03 - SQLAlchemy models for SPF/DMARC/DKIM Watcher.
 
-All seven models are defined here:
+All eight models are defined here:
   User, Domain, DkimSelector, CheckResult,
-  FlapState, ChangeLog, DnsSettings
+  FlapState, ChangeLog, DnsSettings, DnsblCooldown
 """
 
 from __future__ import annotations
@@ -199,6 +199,22 @@ class CheckResult(db.Model):
     reputation_status: db.Mapped[str | None] = db.mapped_column(db.String(20), nullable=True)
     reputation_details: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
 
+    mx_records: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON list of {priority, exchange}
+    mx_provider: db.Mapped[str | None] = db.mapped_column(db.String(100), nullable=True)
+    registrar: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    registrar_details: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
+
+    mx_geolocation: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON list of server locations
+    law25_status: db.Mapped[str | None] = db.mapped_column(db.String(20), nullable=True)
+
+    mta_sts_status: db.Mapped[str | None] = db.mapped_column(db.String(20), nullable=True)
+    mta_sts_record: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+    mta_sts_details: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
+
+    bimi_status: db.Mapped[str | None] = db.mapped_column(db.String(20), nullable=True)
+    bimi_record: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+    bimi_details: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
+
     dns_errors: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
 
     execution_time_ms: db.Mapped[int | None] = db.mapped_column(db.Integer, nullable=True)
@@ -228,6 +244,26 @@ class CheckResult(db.Model):
     def get_dns_errors(self) -> list:
         """Deserialise dns_errors JSON, returning an empty list on failure."""
         return _load_json(self.dns_errors, default=[])
+
+    def get_mx_records(self) -> list:
+        """Deserialise mx_records JSON, returning an empty list on failure."""
+        return _load_json(self.mx_records, default=[])
+
+    def get_registrar_details(self) -> dict:
+        """Deserialise registrar_details JSON, returning an empty dict on failure."""
+        return _load_json(self.registrar_details)
+
+    def get_mx_geolocation(self) -> list:
+        """Deserialise mx_geolocation JSON, returning an empty list on failure."""
+        return _load_json(self.mx_geolocation, default=[])
+
+    def get_mta_sts_details(self) -> dict:
+        """Deserialise mta_sts_details JSON, returning an empty dict on failure."""
+        return _load_json(self.mta_sts_details)
+
+    def get_bimi_details(self) -> dict:
+        """Deserialise bimi_details JSON, returning an empty dict on failure."""
+        return _load_json(self.bimi_details)
 
     def __repr__(self) -> str:
         return (
@@ -330,12 +366,25 @@ class DnsSettings(db.Model):
     timeout_seconds: db.Mapped[float] = db.mapped_column(db.Float, default=5.0, nullable=False)
     retries: db.Mapped[int] = db.mapped_column(db.Integer, default=3, nullable=False)
     flap_threshold: db.Mapped[int] = db.mapped_column(db.Integer, default=2, nullable=False)
+    display_timezone: db.Mapped[str] = db.mapped_column(
+        db.String(50), default="UTC", nullable=False
+    )
+    check_concurrency: db.Mapped[int] = db.mapped_column(
+        db.Integer, default=5, nullable=False
+    )
+    managed_domains: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
     updated_at: db.Mapped[datetime | None] = db.mapped_column(
         db.DateTime(timezone=True), nullable=True
     )
     updated_by: db.Mapped[int | None] = db.mapped_column(
         db.Integer, db.ForeignKey("users.id"), nullable=True
     )
+
+    graph_tenant_id: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    graph_client_id: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    graph_client_secret: db.Mapped[str | None] = db.mapped_column(db.String(500), nullable=True)
+    graph_mailbox: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    graph_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=False, nullable=False)
 
     updated_by_user: db.Mapped[User | None] = db.relationship(
         "User", foreign_keys=[updated_by], lazy="joined"
@@ -353,10 +402,106 @@ class DnsSettings(db.Model):
         """Serialise and store *resolver_list*."""
         self.resolvers = json.dumps(resolver_list)
 
+    def get_managed_domains(self) -> set[str]:
+        """Return the set of managed hostnames (lowercased, whitespace-stripped)."""
+        if not self.managed_domains:
+            return set()
+        return {line.strip().lower() for line in self.managed_domains.splitlines() if line.strip()}
+
     def __repr__(self) -> str:
         return (
             f"<DnsSettings id={self.id} timeout={self.timeout_seconds}"
             f" retries={self.retries} flap_threshold={self.flap_threshold}>"
+        )
+
+
+# ---------------------------------------------------------------------------
+# DnsblCooldown
+# ---------------------------------------------------------------------------
+
+
+class DnsblCooldown(db.Model):
+    """Tracks query-refused responses per DNSBL provider.
+
+    After ``COOLDOWN_THRESHOLD`` consecutive refusals the provider is put on
+    cooldown for ``COOLDOWN_HOURS`` hours to avoid flooding it with requests
+    that will be denied anyway.
+    """
+
+    __tablename__ = "dnsbl_cooldowns"
+
+    COOLDOWN_THRESHOLD: int = 3
+    COOLDOWN_HOURS: int = 24
+
+    id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True)
+    dnsbl: db.Mapped[str] = db.mapped_column(db.String(200), unique=True, nullable=False)
+    consecutive_refusals: db.Mapped[int] = db.mapped_column(db.Integer, default=0, nullable=False)
+    last_refused_at: db.Mapped[datetime | None] = db.mapped_column(
+        db.DateTime(timezone=True), nullable=True
+    )
+    cooldown_until: db.Mapped[datetime | None] = db.mapped_column(
+        db.DateTime(timezone=True), nullable=True
+    )
+
+    def is_on_cooldown(self) -> bool:
+        """Return True if this provider should be skipped right now."""
+        if self.cooldown_until is None:
+            return False
+        # SQLite strips timezone info; compare naive-to-naive (UTC assumed)
+        now = datetime.utcnow()
+        deadline = self.cooldown_until.replace(tzinfo=None) if self.cooldown_until.tzinfo else self.cooldown_until
+        return now < deadline
+
+    def __repr__(self) -> str:
+        return (
+            f"<DnsblCooldown dnsbl={self.dnsbl!r}"
+            f" refusals={self.consecutive_refusals}"
+            f" cooldown_until={self.cooldown_until}>"
+        )
+
+
+# ---------------------------------------------------------------------------
+# DmarcReport
+# ---------------------------------------------------------------------------
+
+
+class DmarcReport(db.Model):
+    """DMARC aggregate report (RFC 7489)."""
+
+    __tablename__ = "dmarc_reports"
+    __table_args__ = (
+        db.UniqueConstraint("report_id", "org_name", name="uq_dmarc_report_id_org"),
+    )
+
+    id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True)
+    report_id: db.Mapped[str] = db.mapped_column(db.String(200), nullable=False)
+    org_name: db.Mapped[str] = db.mapped_column(db.String(200), nullable=False)
+    policy_domain: db.Mapped[str] = db.mapped_column(db.String(255), nullable=False)
+    begin_date: db.Mapped[datetime] = db.mapped_column(db.DateTime(timezone=True), nullable=False)
+    end_date: db.Mapped[datetime] = db.mapped_column(db.DateTime(timezone=True), nullable=False)
+    total_messages: db.Mapped[int] = db.mapped_column(db.Integer, default=0, nullable=False)
+    pass_count: db.Mapped[int] = db.mapped_column(db.Integer, default=0, nullable=False)
+    fail_count: db.Mapped[int] = db.mapped_column(db.Integer, default=0, nullable=False)
+    records_json: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+    ingested_at: db.Mapped[datetime] = db.mapped_column(
+        db.DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    source: db.Mapped[str] = db.mapped_column(db.String(20), nullable=False)  # 'manual' | 'auto'
+    domain_id: db.Mapped[int | None] = db.mapped_column(
+        db.Integer, db.ForeignKey("domains.id", ondelete="SET NULL"), nullable=True
+    )
+    email_subject: db.Mapped[str | None] = db.mapped_column(db.String(500), nullable=True)
+
+    domain: db.Mapped[Domain | None] = db.relationship("Domain")
+
+    def get_records(self) -> list:
+        """Deserialise records_json, returning an empty list on failure."""
+        return _load_json(self.records_json, default=[])
+
+    def __repr__(self) -> str:
+        return (
+            f"<DmarcReport id={self.id} report_id={self.report_id!r}"
+            f" org={self.org_name!r} domain={self.policy_domain!r}>"
         )
 
 

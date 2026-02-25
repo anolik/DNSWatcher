@@ -7,8 +7,58 @@ from __future__ import annotations
 import re
 
 from flask_wtf import FlaskForm
-from wtforms import IntegerField, TextAreaField, SubmitField
-from wtforms.validators import DataRequired, NumberRange, ValidationError
+from wtforms import BooleanField, IntegerField, SelectField, StringField, TextAreaField, SubmitField
+from wtforms.validators import DataRequired, NumberRange, Optional, ValidationError
+
+# Curated timezone list covering major regions.
+# Uses IANA timezone names supported by Python's zoneinfo module.
+TIMEZONE_CHOICES: list[tuple[str, str]] = [
+    ("UTC", "UTC"),
+    ("US/Eastern", "US / Eastern (New York)"),
+    ("US/Central", "US / Central (Chicago)"),
+    ("US/Mountain", "US / Mountain (Denver)"),
+    ("US/Pacific", "US / Pacific (Los Angeles)"),
+    ("US/Alaska", "US / Alaska"),
+    ("US/Hawaii", "US / Hawaii"),
+    ("Canada/Atlantic", "Canada / Atlantic (Halifax)"),
+    ("Canada/Eastern", "Canada / Eastern (Toronto)"),
+    ("Canada/Central", "Canada / Central (Winnipeg)"),
+    ("Canada/Mountain", "Canada / Mountain (Edmonton)"),
+    ("Canada/Pacific", "Canada / Pacific (Vancouver)"),
+    ("Europe/London", "Europe / London"),
+    ("Europe/Paris", "Europe / Paris"),
+    ("Europe/Berlin", "Europe / Berlin"),
+    ("Europe/Amsterdam", "Europe / Amsterdam"),
+    ("Europe/Brussels", "Europe / Brussels"),
+    ("Europe/Zurich", "Europe / Zurich"),
+    ("Europe/Rome", "Europe / Rome"),
+    ("Europe/Madrid", "Europe / Madrid"),
+    ("Europe/Lisbon", "Europe / Lisbon"),
+    ("Europe/Stockholm", "Europe / Stockholm"),
+    ("Europe/Oslo", "Europe / Oslo"),
+    ("Europe/Helsinki", "Europe / Helsinki"),
+    ("Europe/Warsaw", "Europe / Warsaw"),
+    ("Europe/Bucharest", "Europe / Bucharest"),
+    ("Europe/Athens", "Europe / Athens"),
+    ("Europe/Moscow", "Europe / Moscow"),
+    ("Asia/Dubai", "Asia / Dubai"),
+    ("Asia/Kolkata", "Asia / Kolkata (India)"),
+    ("Asia/Shanghai", "Asia / Shanghai (China)"),
+    ("Asia/Tokyo", "Asia / Tokyo"),
+    ("Asia/Seoul", "Asia / Seoul"),
+    ("Asia/Singapore", "Asia / Singapore"),
+    ("Asia/Hong_Kong", "Asia / Hong Kong"),
+    ("Australia/Sydney", "Australia / Sydney"),
+    ("Australia/Melbourne", "Australia / Melbourne"),
+    ("Australia/Perth", "Australia / Perth"),
+    ("Pacific/Auckland", "Pacific / Auckland (New Zealand)"),
+    ("America/Sao_Paulo", "America / Sao Paulo"),
+    ("America/Mexico_City", "America / Mexico City"),
+    ("America/Argentina/Buenos_Aires", "America / Buenos Aires"),
+    ("Africa/Johannesburg", "Africa / Johannesburg"),
+    ("Africa/Cairo", "Africa / Cairo"),
+    ("Africa/Lagos", "Africa / Lagos"),
+]
 
 _IP_RE = re.compile(
     r"^(\d{1,3}\.){3}\d{1,3}$"
@@ -31,7 +81,6 @@ class DnsSettingsForm(FlaskForm):
         validators=[DataRequired(message="At least one resolver IP is required.")],
         render_kw={
             "rows": 5,
-            "class": "form-control font-monospace",
             "placeholder": "8.8.8.8\n1.1.1.1\n9.9.9.9",
         },
     )
@@ -41,7 +90,6 @@ class DnsSettingsForm(FlaskForm):
             DataRequired(message="Timeout is required."),
             NumberRange(min=1, max=30, message="Timeout must be between 1 and 30 seconds."),
         ],
-        render_kw={"class": "form-control"},
     )
     retries: IntegerField = IntegerField(
         "Retries",
@@ -49,7 +97,6 @@ class DnsSettingsForm(FlaskForm):
             DataRequired(message="Retries is required."),
             NumberRange(min=1, max=10, message="Retries must be between 1 and 10."),
         ],
-        render_kw={"class": "form-control"},
     )
     flap_threshold: IntegerField = IntegerField(
         "Flap Threshold",
@@ -59,9 +106,39 @@ class DnsSettingsForm(FlaskForm):
                 min=1, max=5, message="Flap threshold must be between 1 and 5."
             ),
         ],
-        render_kw={"class": "form-control"},
     )
-    submit: SubmitField = SubmitField("Save Settings", render_kw={"class": "btn btn-primary"})
+    display_timezone: SelectField = SelectField(
+        "Display Timezone",
+        choices=TIMEZONE_CHOICES,
+        default="UTC",
+    )
+    check_concurrency: IntegerField = IntegerField(
+        "Check Concurrency",
+        validators=[
+            DataRequired(message="Concurrency is required."),
+            NumberRange(min=1, max=10, message="Concurrency must be between 1 and 10."),
+        ],
+    )
+    managed_domains: TextAreaField = TextAreaField(
+        "Managed Domains (one hostname per line)",
+        render_kw={
+            "rows": 8,
+            "placeholder": "example.com\nmail.example.com\nother.org",
+        },
+    )
+    graph_enabled: BooleanField = BooleanField("Enable Microsoft Graph API auto-fetch")
+    graph_tenant_id: StringField = StringField("Azure Tenant ID", validators=[Optional()])
+    graph_client_id: StringField = StringField("App (Client) ID", validators=[Optional()])
+    graph_client_secret: StringField = StringField(
+        "Client Secret",
+        render_kw={"type": "password", "autocomplete": "new-password"},
+        validators=[Optional()],
+    )
+    graph_mailbox: StringField = StringField(
+        "Mailbox email (rua= address)",
+        validators=[Optional()],
+    )
+    submit: SubmitField = SubmitField("Save Settings")
 
     def validate_resolvers(self, field: TextAreaField) -> None:
         """Ensure each non-empty line is a valid IPv4 address."""

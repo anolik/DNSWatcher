@@ -4,81 +4,220 @@
 
 {% block content %}
 
-<h1 class="h3 mb-4">
-  <i class="bi bi-gear me-2"></i>Settings
+<h1 class="text-xl font-bold text-light-content-primary dark:text-content-primary mb-4">
+  <i class="bi bi-gear mr-2"></i>Settings
 </h1>
 
-<div class="row">
-  <div class="col-12 col-lg-7">
-    <div class="card">
-      <div class="card-header">
-        <i class="bi bi-hdd-network me-1"></i>DNS Resolver Configuration
+<div class="grid grid-cols-12 gap-6">
+  {# ── Settings form ── #}
+  <div class="col-span-12 lg:col-span-7">
+    <div class="mica-card overflow-hidden">
+      <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+        <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+          <i class="bi bi-hdd-network mr-1.5"></i>DNS Resolver Configuration
+        </span>
       </div>
-      <div class="card-body">
+      <div class="p-4">
         <form method="post" action="{{ url_for('settings.index') }}">
           {{ form.hidden_tag() }}
 
           {# Resolvers #}
-          <div class="mb-3">
-            <label for="{{ form.resolvers.id }}" class="form-label fw-semibold">
+          <div class="mb-4">
+            <label for="{{ form.resolvers.id }}"
+                   class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
               {{ form.resolvers.label.text }}
             </label>
             {{ form.resolvers(id=form.resolvers.id,
-                              class='form-control font-monospace' + (' is-invalid' if form.resolvers.errors else '')) }}
-            <div class="form-text">
+                              class='mica-input font-mono' + (' is-invalid' if form.resolvers.errors else '')) }}
+            <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
               Enter one IPv4 address per line. These resolvers are used for all DNS lookups.
-            </div>
+            </p>
             {% for err in form.resolvers.errors %}
-              <div class="invalid-feedback">{{ err }}</div>
+              <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
             {% endfor %}
           </div>
 
-          <div class="row g-3 mb-3">
+          {# Timeout / Retries / Flap threshold row #}
+          <div class="grid grid-cols-12 gap-3 mb-4">
             {# Timeout #}
-            <div class="col-12 col-sm-4">
-              <label for="{{ form.timeout_seconds.id }}" class="form-label fw-semibold">
+            <div class="col-span-12 sm:col-span-4">
+              <label for="{{ form.timeout_seconds.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
                 {{ form.timeout_seconds.label.text }}
               </label>
               {{ form.timeout_seconds(id=form.timeout_seconds.id,
-                                      class='form-control' + (' is-invalid' if form.timeout_seconds.errors else ''),
+                                      class='mica-input' + (' is-invalid' if form.timeout_seconds.errors else ''),
                                       min=1, max=30) }}
               {% for err in form.timeout_seconds.errors %}
-                <div class="invalid-feedback">{{ err }}</div>
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
               {% endfor %}
             </div>
 
             {# Retries #}
-            <div class="col-12 col-sm-4">
-              <label for="{{ form.retries.id }}" class="form-label fw-semibold">
+            <div class="col-span-12 sm:col-span-4">
+              <label for="{{ form.retries.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
                 {{ form.retries.label.text }}
               </label>
               {{ form.retries(id=form.retries.id,
-                              class='form-control' + (' is-invalid' if form.retries.errors else ''),
+                              class='mica-input' + (' is-invalid' if form.retries.errors else ''),
                               min=1, max=10) }}
               {% for err in form.retries.errors %}
-                <div class="invalid-feedback">{{ err }}</div>
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
               {% endfor %}
             </div>
 
             {# Flap threshold #}
-            <div class="col-12 col-sm-4">
-              <label for="{{ form.flap_threshold.id }}" class="form-label fw-semibold">
+            <div class="col-span-12 sm:col-span-4">
+              <label for="{{ form.flap_threshold.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
                 {{ form.flap_threshold.label.text }}
               </label>
               {{ form.flap_threshold(id=form.flap_threshold.id,
-                                     class='form-control' + (' is-invalid' if form.flap_threshold.errors else ''),
+                                     class='mica-input' + (' is-invalid' if form.flap_threshold.errors else ''),
                                      min=1, max=5) }}
-              <div class="form-text">
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
                 Consecutive failures before raising a critical alert.
-              </div>
+              </p>
               {% for err in form.flap_threshold.errors %}
-                <div class="invalid-feedback">{{ err }}</div>
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
               {% endfor %}
             </div>
           </div>
 
+          <hr class="border-light-surface-border/20 dark:border-surface-border/10 my-4">
+
+          {# Timezone / Concurrency row #}
+          <div class="grid grid-cols-12 gap-3 mb-4">
+            {# Display timezone #}
+            <div class="col-span-12 sm:col-span-8">
+              <label for="{{ form.display_timezone.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.display_timezone.label.text }}
+              </label>
+              {{ form.display_timezone(id=form.display_timezone.id,
+                                       class='mica-select' + (' is-invalid' if form.display_timezone.errors else '')) }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                All dates and times in the interface will be displayed in this timezone.
+              </p>
+              {% for err in form.display_timezone.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            {# Check concurrency #}
+            <div class="col-span-12 sm:col-span-4">
+              <label for="{{ form.check_concurrency.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.check_concurrency.label.text }}
+              </label>
+              {{ form.check_concurrency(id=form.check_concurrency.id,
+                                        class='mica-input' + (' is-invalid' if form.check_concurrency.errors else ''),
+                                        min=1, max=10) }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                Domains checked in parallel during "Check All".
+              </p>
+              {% for err in form.check_concurrency.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+          </div>
+
+          <hr class="border-light-surface-border/20 dark:border-surface-border/10 my-4">
+
+          {# Managed Domains #}
+          <div class="mb-4">
+            <label for="{{ form.managed_domains.id }}"
+                   class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+              <i class="bi bi-check2-circle mr-1.5 text-status-ok"></i>{{ form.managed_domains.label.text }}
+            </label>
+            {{ form.managed_domains(id=form.managed_domains.id,
+                                    class='mica-input font-mono' + (' is-invalid' if form.managed_domains.errors else '')) }}
+            <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+              Paste all hostnames managed by your organization. The dashboard will tag
+              each domain <span class="badge-ok">YES</span> or <span class="badge-pending">NO</span> accordingly.
+            </p>
+            {% for err in form.managed_domains.errors %}
+              <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+            {% endfor %}
+          </div>
+
+          <hr class="border-light-surface-border/20 dark:border-surface-border/10 my-4">
+
+          {# DMARC Report Fetch — Microsoft Graph API #}
+          <div class="mb-4">
+            <h3 class="text-sm font-bold text-light-content-primary dark:text-content-primary mb-3">
+              <i class="bi bi-envelope-at mr-1.5 text-primary-400"></i>DMARC Report Fetch (Microsoft Graph API)
+            </h3>
+
+            {# Enable toggle #}
+            <div class="mb-3 flex items-center gap-3">
+              {{ form.graph_enabled(id=form.graph_enabled.id, class="w-4 h-4 accent-primary-500") }}
+              <label for="{{ form.graph_enabled.id }}"
+                     class="text-sm font-semibold text-light-content-primary dark:text-content-primary cursor-pointer">
+                {{ form.graph_enabled.label.text }}
+              </label>
+            </div>
+
+            <div class="grid grid-cols-12 gap-3">
+              {# Tenant ID #}
+              <div class="col-span-12 sm:col-span-6">
+                <label for="{{ form.graph_tenant_id.id }}"
+                       class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                  {{ form.graph_tenant_id.label.text }}
+                </label>
+                {{ form.graph_tenant_id(id=form.graph_tenant_id.id,
+                                        class="mica-input font-mono" + (" is-invalid" if form.graph_tenant_id.errors else ""),
+                                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }}
+                {% for err in form.graph_tenant_id.errors %}<p class="mt-1 text-xs text-status-danger">{{ err }}</p>{% endfor %}
+              </div>
+
+              {# Client ID #}
+              <div class="col-span-12 sm:col-span-6">
+                <label for="{{ form.graph_client_id.id }}"
+                       class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                  {{ form.graph_client_id.label.text }}
+                </label>
+                {{ form.graph_client_id(id=form.graph_client_id.id,
+                                        class="mica-input font-mono" + (" is-invalid" if form.graph_client_id.errors else ""),
+                                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }}
+                {% for err in form.graph_client_id.errors %}<p class="mt-1 text-xs text-status-danger">{{ err }}</p>{% endfor %}
+              </div>
+
+              {# Client Secret #}
+              <div class="col-span-12 sm:col-span-6">
+                <label for="{{ form.graph_client_secret.id }}"
+                       class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                  {{ form.graph_client_secret.label.text }}
+                </label>
+                {{ form.graph_client_secret(id=form.graph_client_secret.id,
+                                             class="mica-input" + (" is-invalid" if form.graph_client_secret.errors else ""),
+                                             placeholder="Leave blank to keep current secret") }}
+                <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                  Leave blank to keep the existing secret unchanged.
+                </p>
+                {% for err in form.graph_client_secret.errors %}<p class="mt-1 text-xs text-status-danger">{{ err }}</p>{% endfor %}
+              </div>
+
+              {# Mailbox #}
+              <div class="col-span-12 sm:col-span-6">
+                <label for="{{ form.graph_mailbox.id }}"
+                       class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                  {{ form.graph_mailbox.label.text }}
+                </label>
+                {{ form.graph_mailbox(id=form.graph_mailbox.id,
+                                      class="mica-input" + (" is-invalid" if form.graph_mailbox.errors else ""),
+                                      placeholder="dmarc-reports@yourdomain.com") }}
+                <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                  The Exchange Online mailbox where DMARC rua= reports are sent.
+                </p>
+                {% for err in form.graph_mailbox.errors %}<p class="mt-1 text-xs text-status-danger">{{ err }}</p>{% endfor %}
+              </div>
+            </div>
+          </div>
+
           <div>
-            {{ form.submit() }}
+            {{ form.submit(class="btn-primary") }}
           </div>
         </form>
       </div>
@@ -86,44 +225,85 @@
   </div>
 
   {# ── Info sidebar ── #}
-  <div class="col-12 col-lg-5 mt-3 mt-lg-0">
-    <div class="card">
-      <div class="card-header">
-        <i class="bi bi-info-circle me-1"></i>About These Settings
+  <div class="col-span-12 lg:col-span-5 space-y-4">
+    <div class="mica-card overflow-hidden">
+      <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+        <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+          <i class="bi bi-info-circle mr-1.5"></i>About These Settings
+        </span>
       </div>
-      <div class="card-body small text-muted">
-        <dl class="mb-0">
-          <dt>DNS Resolvers</dt>
-          <dd class="mb-2">
-            IP addresses of the DNS servers used for all SPF, DMARC and DKIM lookups.
-            Multiple servers are tried in order. Defaults: 8.8.8.8, 1.1.1.1, 9.9.9.9.
-          </dd>
-          <dt>Timeout</dt>
-          <dd class="mb-2">
-            Seconds to wait for a DNS response before the query times out.
-            Increase this on slow or unreliable networks.
-          </dd>
-          <dt>Retries</dt>
-          <dd class="mb-2">
-            How many times to retry a failed DNS query before giving up.
-          </dd>
-          <dt>Flap Threshold</dt>
-          <dd class="mb-0">
-            Number of consecutive failures required before an issue is escalated
-            to a critical alert (anti-flapping). Setting this to 1 disables
-            anti-flapping protection.
-          </dd>
+      <div class="p-4 text-sm text-light-content-muted dark:text-content-muted">
+        <dl class="space-y-3">
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">DNS Resolvers</dt>
+            <dd>
+              IP addresses of the DNS servers used for all SPF, DMARC and DKIM lookups.
+              Multiple servers are tried in order. Defaults: 8.8.8.8, 1.1.1.1, 9.9.9.9.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">Timeout</dt>
+            <dd>
+              Seconds to wait for a DNS response before the query times out.
+              Increase this on slow or unreliable networks.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">Retries</dt>
+            <dd>
+              How many times to retry a failed DNS query before giving up.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">Flap Threshold</dt>
+            <dd>
+              Number of consecutive failures required before an issue is escalated
+              to a critical alert (anti-flapping). Setting this to 1 disables
+              anti-flapping protection.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">Display Timezone</dt>
+            <dd>
+              Controls how dates and times are shown throughout the interface.
+              All data is stored in UTC; this setting only affects display.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">Check Concurrency</dt>
+            <dd>
+              Number of domains checked simultaneously when using "Check All".
+              Higher values speed up batch checks but increase DNS load.
+              Default: 5.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">Managed Domains</dt>
+            <dd>
+              List of hostnames your organization manages. The dashboard shows a
+              <span class="badge-ok">YES</span> badge for managed domains and
+              <span class="badge-pending">NO</span> for others.
+            </dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">DMARC Graph API Fetch</dt>
+            <dd>
+              Automatically fetch DMARC aggregate reports from an Exchange Online mailbox using
+              Microsoft Graph API (client credentials OAuth2). Requires an Azure AD App Registration
+              with <code>Mail.Read</code> application permission.
+            </dd>
+          </div>
         </dl>
       </div>
     </div>
 
     {% if dns_settings and dns_settings.updated_at %}
-    <div class="card mt-3">
-      <div class="card-body small text-muted">
-        <i class="bi bi-clock me-1"></i>
-        Last saved: {{ dns_settings.updated_at.strftime('%Y-%m-%d %H:%M') }} UTC
+    <div class="mica-card overflow-hidden">
+      <div class="p-4 text-sm text-light-content-muted dark:text-content-muted">
+        <i class="bi bi-clock mr-1"></i>
+        Last saved: {{ dns_settings.updated_at|to_tz }} {{ display_tz }}
         {% if dns_settings.updated_by_user %}
-          by <strong>{{ dns_settings.updated_by_user.username }}</strong>
+          by <strong class="text-light-content-primary dark:text-content-primary">{{ dns_settings.updated_by_user.username }}</strong>
         {% endif %}
       </div>
     </div>

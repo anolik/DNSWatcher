@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}DMARC Report Detail — SPF/DMARC/DKIM Watcher{% endblock %}
+
+{% block content %}
+
+{# ── Back link ── #}
+<nav aria-label="breadcrumb" class="mb-4">
+  <a href="{{ url_for('dmarc_reports.index') }}"
+     class="inline-flex items-center gap-1 text-sm text-light-content-muted dark:text-content-muted hover:text-primary-500 dark:hover:text-primary-400 transition-colors">
+    <i class="bi bi-arrow-left"></i>
+    Back to DMARC Reports
+  </a>
+</nav>
+
+{# ── Header card: metadata + summary counters ── #}
+<div class="mica-card overflow-hidden mb-4">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center gap-2">
+    <i class="bi bi-file-earmark-text text-light-content-muted dark:text-content-muted"></i>
+    <h1 class="text-base font-semibold text-light-content-primary dark:text-content-primary">
+      {{ report.org_name }}
+    </h1>
+    {# Source badge #}
+    {% if report.source == 'auto' %}
+      <span class="badge-info ml-auto">Auto</span>
+    {% else %}
+      <span class="badge-pending ml-auto">Manual</span>
+    {% endif %}
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-0 md:divide-x divide-light-surface-border/20 dark:divide-surface-border/10">
+
+    {# Left: Report metadata #}
+    <div class="p-4">
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-light-content-muted dark:text-content-muted mb-3">
+        Report Metadata
+      </h2>
+      <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+
+        <dt class="font-semibold text-light-content-secondary dark:text-content-secondary whitespace-nowrap">
+          Policy Domain
+        </dt>
+        <dd class="text-light-content-primary dark:text-content-primary">
+          <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ report.policy_domain }}</code>
+        </dd>
+
+        <dt class="font-semibold text-light-content-secondary dark:text-content-secondary whitespace-nowrap">
+          Period
+        </dt>
+        <dd class="text-light-content-primary dark:text-content-primary whitespace-nowrap">
+          {{ report.begin_date|to_tz("%Y-%m-%d") }}
+          <span class="text-light-content-muted dark:text-content-muted mx-1">&rarr;</span>
+          {{ report.end_date|to_tz("%Y-%m-%d") }}
+        </dd>
+
+        <dt class="font-semibold text-light-content-secondary dark:text-content-secondary whitespace-nowrap">
+          Report ID
+        </dt>
+        <dd class="text-light-content-primary dark:text-content-primary font-mono text-xs break-all">
+          {{ report.report_id }}
+        </dd>
+
+        <dt class="font-semibold text-light-content-secondary dark:text-content-secondary whitespace-nowrap">
+          Ingested At
+        </dt>
+        <dd class="text-light-content-muted dark:text-content-muted">
+          {{ report.ingested_at|to_tz("%Y-%m-%d %H:%M") }}
+        </dd>
+
+      </dl>
+    </div>
+
+    {# Right: Summary counters #}
+    <div class="p-4">
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-light-content-muted dark:text-content-muted mb-3">
+        Summary
+      </h2>
+      <div class="grid grid-cols-3 gap-3">
+
+        {# Total #}
+        <div class="rounded-lg border border-light-surface-border/20 dark:border-surface-border/10 bg-gray-50 dark:bg-surface-raised px-3 py-3 text-center">
+          <div class="text-2xl font-bold text-light-content-primary dark:text-content-primary tabular-nums">
+            {{ report.total_messages }}
+          </div>
+          <div class="text-xs text-light-content-muted dark:text-content-muted mt-0.5">
+            Total
+          </div>
+        </div>
+
+        {# Pass #}
+        <div class="rounded-lg border border-green-200 dark:border-green-800/30 bg-green-50 dark:bg-green-900/20 px-3 py-3 text-center">
+          <div class="text-2xl font-bold text-status-success tabular-nums">
+            {{ report.pass_count }}
+          </div>
+          <div class="text-xs text-status-success mt-0.5 opacity-80">
+            Pass
+          </div>
+        </div>
+
+        {# Fail #}
+        <div class="rounded-lg border {% if report.fail_count > 0 %}border-red-200 dark:border-red-800/30 bg-red-50 dark:bg-red-900/20{% else %}border-light-surface-border/20 dark:border-surface-border/10 bg-gray-50 dark:bg-surface-raised{% endif %} px-3 py-3 text-center">
+          <div class="text-2xl font-bold {% if report.fail_count > 0 %}text-status-danger{% else %}text-light-content-muted dark:text-content-muted{% endif %} tabular-nums">
+            {{ report.fail_count }}
+          </div>
+          <div class="text-xs {% if report.fail_count > 0 %}text-status-danger opacity-80{% else %}text-light-content-muted dark:text-content-muted{% endif %} mt-0.5">
+            Fail
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+{# ── Source IP Records table ── #}
+<div class="mica-card overflow-hidden">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-diagram-3 mr-1.5"></i>Source IP Records
+      {% if records %}
+        <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ records|length }})</span>
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="mica-table">
+      <thead>
+        <tr>
+          <th>Source IP</th>
+          <th class="text-right">Count</th>
+          <th>Disposition</th>
+          <th class="text-center">DKIM Eval</th>
+          <th class="text-center">SPF Eval</th>
+          <th>Header From</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if records %}
+          {% for rec in records %}
+          <tr>
+            {# Source IP #}
+            <td>
+              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ rec.source_ip }}</code>
+            </td>
+
+            {# Count #}
+            <td class="text-right tabular-nums text-light-content-secondary dark:text-content-secondary">
+              {{ rec.count }}
+            </td>
+
+            {# Disposition #}
+            <td>
+              {% if rec.disposition == 'none' %}
+                <span class="badge-ok">none</span>
+              {% elif rec.disposition == 'quarantine' %}
+                <span class="badge-warning">quarantine</span>
+              {% elif rec.disposition == 'reject' %}
+                <span class="badge-critical">reject</span>
+              {% else %}
+                <span class="badge-pending">{{ rec.disposition }}</span>
+              {% endif %}
+            </td>
+
+            {# DKIM Eval #}
+            <td class="text-center">
+              {% if rec.dkim == 'pass' %}
+                <span class="badge-ok">pass</span>
+              {% elif rec.dkim == 'fail' %}
+                <span class="badge-critical">fail</span>
+              {% else %}
+                <span class="badge-pending">{{ rec.dkim or '—' }}</span>
+              {% endif %}
+            </td>
+
+            {# SPF Eval #}
+            <td class="text-center">
+              {% if rec.spf == 'pass' %}
+                <span class="badge-ok">pass</span>
+              {% elif rec.spf == 'fail' %}
+                <span class="badge-critical">fail</span>
+              {% else %}
+                <span class="badge-pending">{{ rec.spf or '—' }}</span>
+              {% endif %}
+            </td>
+
+            {# Header From #}
+            <td class="text-sm text-light-content-secondary dark:text-content-secondary">
+              {% if rec.header_from %}
+                <code class="text-xs">{{ rec.header_from }}</code>
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted">&mdash;</span>
+              {% endif %}
+            </td>
+          </tr>
+
+          {# Optional: per-record auth details sub-row (DKIM/SPF domain + result) #}
+          {% if rec.dkim_domain or rec.spf_domain %}
+          <tr class="bg-gray-50/60 dark:bg-surface-raised/30">
+            <td colspan="6" class="py-1.5 px-4">
+              <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs text-light-content-muted dark:text-content-muted">
+                {% if rec.dkim_domain %}
+                <span>
+                  <i class="bi bi-key mr-1"></i>
+                  DKIM:
+                  <code>{{ rec.dkim_domain }}</code>
+                  {% if rec.dkim_result %}
+                    &mdash;
+                    {% if rec.dkim_result == 'pass' %}
+                      <span class="text-status-success font-medium">{{ rec.dkim_result }}</span>
+                    {% else %}
+                      <span class="text-status-danger font-medium">{{ rec.dkim_result }}</span>
+                    {% endif %}
+                  {% endif %}
+                </span>
+                {% endif %}
+                {% if rec.spf_domain %}
+                <span>
+                  <i class="bi bi-shield-shaded mr-1"></i>
+                  SPF:
+                  <code>{{ rec.spf_domain }}</code>
+                  {% if rec.spf_result %}
+                    &mdash;
+                    {% if rec.spf_result == 'pass' %}
+                      <span class="text-status-success font-medium">{{ rec.spf_result }}</span>
+                    {% else %}
+                      <span class="text-status-danger font-medium">{{ rec.spf_result }}</span>
+                    {% endif %}
+                  {% endif %}
+                </span>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endif %}
+
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-light-content-muted dark:text-content-muted py-10">
+              <i class="bi bi-inbox text-3xl block mb-2 opacity-40"></i>
+              No source IP records found for this report.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

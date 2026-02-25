@@ -45,15 +45,26 @@ def index():
         dns_settings.timeout_seconds = float(form.timeout_seconds.data)
         dns_settings.retries = form.retries.data
         dns_settings.flap_threshold = form.flap_threshold.data
+        dns_settings.display_timezone = form.display_timezone.data
+        dns_settings.check_concurrency = form.check_concurrency.data
+        dns_settings.managed_domains = form.managed_domains.data or ""
+        dns_settings.graph_enabled = form.graph_enabled.data
+        dns_settings.graph_tenant_id = (form.graph_tenant_id.data or "").strip() or None
+        dns_settings.graph_client_id = (form.graph_client_id.data or "").strip() or None
+        dns_settings.graph_client_secret = (form.graph_client_secret.data or "").strip() or None
+        dns_settings.graph_mailbox = (form.graph_mailbox.data or "").strip() or None
         dns_settings.updated_at = datetime.now(timezone.utc)
         dns_settings.updated_by = current_user.id
         db.session.commit()
         logger.info(
-            "DNS settings updated: resolvers=%r timeout=%.1fs retries=%d flap_threshold=%d user=%r",
+            "DNS settings updated: resolvers=%r timeout=%.1fs retries=%d "
+            "flap_threshold=%d timezone=%s concurrency=%d user=%r",
             resolver_lines,
             dns_settings.timeout_seconds,
             dns_settings.retries,
             dns_settings.flap_threshold,
+            dns_settings.display_timezone,
+            dns_settings.check_concurrency,
             current_user.username,
         )
         flash("DNS settings saved successfully.", "success")
@@ -65,5 +76,13 @@ def index():
         form.timeout_seconds.data = int(dns_settings.timeout_seconds)
         form.retries.data = dns_settings.retries
         form.flap_threshold.data = dns_settings.flap_threshold
+        form.display_timezone.data = dns_settings.display_timezone
+        form.check_concurrency.data = dns_settings.check_concurrency
+        form.managed_domains.data = dns_settings.managed_domains or ""
+        form.graph_enabled.data = dns_settings.graph_enabled
+        form.graph_tenant_id.data = dns_settings.graph_tenant_id or ""
+        form.graph_client_id.data = dns_settings.graph_client_id or ""
+        form.graph_client_secret.data = ""  # never pre-fill secrets
+        form.graph_mailbox.data = dns_settings.graph_mailbox or ""
 
     return render_template("settings.html", form=form, dns_settings=dns_settings)

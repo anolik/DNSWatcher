@@ -160,7 +160,7 @@ def main() -> int:
     # Bootstrap Flask application context
     # ------------------------------------------------------------------
     try:
-        from app import create_app
+        from app import create_app, db
 
         flask_app = create_app()
     except Exception:
@@ -213,7 +213,9 @@ def main() -> int:
                 return 1
 
         # ------------------------------------------------------------------
-        # All-domains mode (default)
+        # All-domains mode (default) — uses run_all_checks() which handles
+        # concurrency internally based on the DnsSettings.check_concurrency
+        # setting.
         # ------------------------------------------------------------------
         else:
             active_domains = Domain.query.filter_by(is_active=True).all()
@@ -225,36 +227,40 @@ def main() -> int:
                 _log_summary(logger, run_start, checked=0, failed=0)
                 return 0
 
-            checked = 0
-            failed = 0
+            results = run_all_checks(trigger_type="scheduled")
 
-            for domain in active_domains:
-                t0 = time.monotonic()
-                try:
-                    result = run_domain_check(domain, trigger_type="scheduled")
-                    elapsed = time.monotonic() - t0
-                    checked += 1
-                    logger.info(
-                        "DONE  %-50s  overall=%-8s  spf=%-8s  dmarc=%-8s  dkim=%-8s  rep=%-8s  elapsed=%.1fs",
-                        domain.hostname,
-                        result.overall_status,
-                        result.spf_status or "n/a",
-                        result.dmarc_status or "n/a",
-                        result.dkim_status or "n/a",
-                        result.reputation_status or "n/a",
-                        elapsed,
-                    )
-                except Exception:
-                    # Log the exception but continue checking remaining domains.
-                    # run_all_checks() also handles this internally, but since we
-                    # call run_domain_check() individually here for detailed logging,
-                    # we handle it ourselves.
-                    failed += 1
-                    logger.exception(
-                        "FAIL  %-50s  (check raised an exception)", domain.hostname
-                    )
+            for result in results:
+                logger.info(
+                    "DONE  %-50s  overall=%-8s  spf=%-8s  dmarc=%-8s  dkim=%-8s  rep=%-8s  elapsed=%dms",
+                    result.domain.hostname if result.domain else f"id={result.domain_id}",
+                    result.overall_status,
+                    result.spf_status or "n/a",
+                    result.dmarc_status or "n/a",
+                    result.dkim_status or "n/a",
+                    result.reputation_status or "n/a",
+                    result.execution_time_ms or 0,
+                )
 
+            checked = len(results)
+            failed = total - checked
             _log_summary(logger, run_start, checked=checked, failed=failed)
+
+            # ------------------------------------------------------------------
+            # DMARC auto-fetch via Microsoft Graph API (if configured)
+            # ------------------------------------------------------------------
+            try:
+                from app.models import DnsSettings
+                dns_settings = db.session.get(DnsSettings, 1)
+                if dns_settings and getattr(dns_settings, "graph_enabled", False):
+                    from app.dmarc_reports.routes import run_graph_fetch
+                    imported, dupes = run_graph_fetch(flask_app)
+                    logger.info(
+                        "DMARC auto-fetch: %d imported, %d duplicates skipped",
+                        imported,
+                        dupes,
+                    )
+            except Exception:
+                logger.exception("DMARC auto-fetch failed.")
 
     return 0
 

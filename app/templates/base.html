@@ -5,180 +5,184 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}SPF/DMARC/DKIM Watcher{% endblock %}</title>
 
-  <!-- Bootstrap 5.3 CSS -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
-    crossorigin="anonymous"
-  />
-  <!-- Bootstrap Icons -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
-  />
+  {# FOUC prevention: apply dark class before paint #}
+  <script>
+    (function(){
+      var t=localStorage.getItem("mica-theme");
+      if(t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme:dark)").matches)){
+        document.documentElement.classList.add("dark");
+      }
+    })();
+  </script>
+
+  {# Compiled Tailwind CSS (MICA design system) #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+
+  {# Bootstrap Icons (CSS-only, no JS dependency) #}
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
 
   <style>
-    body {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    main {
-      flex: 1;
-    }
-    .navbar-brand {
-      font-weight: 700;
-      letter-spacing: .04em;
-    }
-    .status-ok        { color: #198754; }
-    .status-warning   { color: #fd7e14; }
-    .status-critical  { color: #dc3545; }
-    .status-pending   { color: #6c757d; }
-    footer {
-      font-size: .875rem;
+    /* Sortable table headers */
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { background-color: rgba(0,0,0,.04); }
+    .dark th.sortable:hover { background-color: rgba(255,255,255,.06); }
+    .sort-icon { font-size: .65em; opacity: .5; margin-left: .25em; }
+    th.sortable:hover .sort-icon { opacity: 1; }
+    /* Narrow columns */
+    .col-narrow    { width: 7rem; max-width: 7rem; white-space: nowrap; }
+    .col-narrow-sm { width: 5.5rem; max-width: 5.5rem; white-space: nowrap; }
+    /* Per-column filter row */
+    .filter-row th { padding: .25rem .35rem; }
+    /* Hide caret on kebab action dropdowns */
+    .dropdown-toggle::after { display: none; }
+    /* Dropdown menu (custom) */
+    .dropdown-menu {
+      z-index: 50;
+      min-width: 12rem;
+      border-radius: 0.5rem;
+      overflow: hidden;
     }
   </style>
 </head>
-<body>
+<body class="min-h-screen flex flex-col">
 
-  <!-- ================================================================
-       Navigation bar (only shown when the user is authenticated)
-       ================================================================ -->
+  {# ── Navigation bar ── #}
   {% if current_user.is_authenticated %}
-  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-    <div class="container-fluid">
-      <a class="navbar-brand" href="{{ url_for('dashboard.index') }}">
-        <i class="bi bi-shield-check me-1"></i>DNS Watcher
-      </a>
-      <button
-        class="navbar-toggler"
-        type="button"
-        data-bs-toggle="collapse"
-        data-bs-target="#mainNav"
-        aria-controls="mainNav"
-        aria-expanded="false"
-        aria-label="Toggle navigation"
-      >
-        <span class="navbar-toggler-icon"></span>
-      </button>
+  <nav class="sticky top-0 z-40 glass-surface border-b border-light-surface-border/20 dark:border-surface-border/10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-14">
 
-      <div class="collapse navbar-collapse" id="mainNav">
-        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        {# Brand #}
+        <a href="{{ url_for('dashboard.index') }}"
+           class="flex items-center gap-2 font-bold text-light-content-primary dark:text-content-primary tracking-wide text-sm">
+          <i class="bi bi-shield-check text-primary-400"></i>
+          <span>DNS Watcher</span>
+        </a>
 
-          <li class="nav-item">
-            <a
-              class="nav-link {% if request.endpoint and request.endpoint.startswith('dashboard.') %}active{% endif %}"
-              href="{{ url_for('dashboard.index') }}"
-            >
-              <i class="bi bi-speedometer2 me-1"></i>Dashboard
+        {# Desktop nav links #}
+        <div class="hidden md:flex items-center gap-1">
+          {% set nav_items = [
+            ('dashboard.index', 'speedometer2', 'Dashboard', 'dashboard.'),
+            ('history.index', 'clock-history', 'Changes', 'history.'),
+            ('ingest.index', 'upload', 'Import', 'ingest.'),
+            ('dmarc_reports.index', 'file-earmark-text', 'DMARC', 'dmarc_reports.'),
+            ('settings.index', 'gear', 'Settings', 'settings.'),
+            ('history.health_page', 'heart-pulse', 'Health', None),
+          ] %}
+          {% for endpoint_name, icon, label, prefix in nav_items %}
+            {% if prefix %}
+              {% set is_active = request.endpoint and request.endpoint.startswith(prefix) %}
+            {% else %}
+              {% set is_active = request.endpoint == endpoint_name %}
+            {% endif %}
+            <a href="{{ url_for(endpoint_name) }}"
+               class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors
+                      {% if is_active %}
+                        bg-primary-500/10 text-primary-500 dark:text-primary-300
+                      {% else %}
+                        text-light-content-secondary dark:text-content-secondary
+                        hover:bg-gray-100 dark:hover:bg-surface-raised
+                      {% endif %}">
+              <i class="bi bi-{{ icon }} mr-1"></i>{{ label }}
             </a>
-          </li>
+          {% endfor %}
+        </div>
 
-          <li class="nav-item">
-            <a
-              class="nav-link {% if request.endpoint and request.endpoint.startswith('history.') %}active{% endif %}"
-              href="{{ url_for('history.index') }}"
-            >
-              <i class="bi bi-clock-history me-1"></i>Changes
-            </a>
-          </li>
+        {# Right side: theme toggle + user menu #}
+        <div class="flex items-center gap-3">
+          {# Theme toggle #}
+          <button id="theme-toggle" type="button"
+                  aria-label="Toggle dark mode"
+                  class="p-2 rounded-lg text-light-content-secondary dark:text-content-secondary
+                         hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors">
+            <svg class="icon-sun w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <svg class="icon-moon w-4 h-4" style="display:none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
 
-          <li class="nav-item">
-            <a
-              class="nav-link {% if request.endpoint and request.endpoint.startswith('ingest.') %}active{% endif %}"
-              href="{{ url_for('ingest.index') }}"
-            >
-              <i class="bi bi-upload me-1"></i>Import
-            </a>
-          </li>
+          {# User info + logout #}
+          <span class="hidden sm:inline text-xs text-light-content-muted dark:text-content-muted">
+            <i class="bi bi-person-circle mr-1"></i>{{ current_user.username }}
+          </span>
+          <a href="{{ url_for('auth.logout') }}"
+             class="text-xs text-light-content-muted dark:text-content-muted hover:text-status-danger transition-colors">
+            <i class="bi bi-box-arrow-right mr-1"></i>Logout
+          </a>
 
-          <li class="nav-item">
-            <a
-              class="nav-link {% if request.endpoint and request.endpoint.startswith('settings.') %}active{% endif %}"
-              href="{{ url_for('settings.index') }}"
-            >
-              <i class="bi bi-gear me-1"></i>Settings
-            </a>
-          </li>
+          {# Mobile hamburger #}
+          <button id="mobile-nav-toggle" type="button"
+                  class="md:hidden p-2 rounded-lg text-light-content-secondary dark:text-content-secondary
+                         hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors"
+                  aria-label="Toggle navigation" aria-expanded="false">
+            <i class="bi bi-list text-lg"></i>
+          </button>
+        </div>
+      </div>
 
-          <li class="nav-item">
-            <a
-              class="nav-link {% if request.endpoint == 'history.health_page' %}active{% endif %}"
-              href="{{ url_for('history.health_page') }}"
-            >
-              <i class="bi bi-heart-pulse me-1"></i>Health
-            </a>
-          </li>
-
-        </ul>
-
-        <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-          <li class="nav-item">
-            <span class="navbar-text me-3 text-secondary">
-              <i class="bi bi-person-circle me-1"></i>{{ current_user.username }}
-            </span>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('auth.logout') }}">
-              <i class="bi bi-box-arrow-right me-1"></i>Logout
-            </a>
-          </li>
-        </ul>
+      {# Mobile nav (hidden by default) #}
+      <div id="mobile-nav" class="md:hidden hidden pb-3 border-t border-light-surface-border/20 dark:border-surface-border/10 mt-1 pt-2 space-y-1">
+        {% for endpoint_name, icon, label, prefix in nav_items %}
+          {% if prefix %}
+            {% set is_active = request.endpoint and request.endpoint.startswith(prefix) %}
+          {% else %}
+            {% set is_active = request.endpoint == endpoint_name %}
+          {% endif %}
+          <a href="{{ url_for(endpoint_name) }}"
+             class="block px-3 py-2 rounded-lg text-sm font-medium transition-colors
+                    {% if is_active %}
+                      bg-primary-500/10 text-primary-500 dark:text-primary-300
+                    {% else %}
+                      text-light-content-secondary dark:text-content-secondary
+                      hover:bg-gray-100 dark:hover:bg-surface-raised
+                    {% endif %}">
+            <i class="bi bi-{{ icon }} mr-2"></i>{{ label }}
+          </a>
+        {% endfor %}
       </div>
     </div>
   </nav>
   {% endif %}
 
-  <!-- ================================================================
-       Flash messages
-       ================================================================ -->
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-    <div class="container-fluid mt-2">
-      {% for category, message in messages %}
-        {# Map Flask flash categories to Bootstrap alert classes #}
-        {% if category == 'error' %}
-          {% set alert_class = 'danger' %}
-        {% elif category in ('success', 'warning', 'danger', 'info') %}
-          {% set alert_class = category %}
-        {% else %}
-          {% set alert_class = 'secondary' %}
-        {% endif %}
-        <div class="alert alert-{{ alert_class }} alert-dismissible fade show" role="alert">
-          {{ message }}
-          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-  {% endwith %}
+  {# ── Flash messages ── #}
+  {% from "macros/ui.html" import flash_messages %}
+  {{ flash_messages() }}
 
-  <!-- ================================================================
-       Main content
-       ================================================================ -->
-  <main class="container-fluid py-3">
+  {# ── Main content ── #}
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
     {% block content %}{% endblock %}
   </main>
 
-  <!-- ================================================================
-       Footer
-       ================================================================ -->
-  <footer class="bg-light border-top py-2 text-center text-muted">
+  {# ── Footer ── #}
+  <footer class="border-t border-light-surface-border/20 dark:border-surface-border/10 py-3 text-center text-xs text-light-content-muted dark:text-content-muted">
     SPF/DMARC/DKIM Watcher &mdash; monitoring email DNS configurations
   </footer>
 
-  <!-- Bootstrap 5.3 JS bundle (Popper included) -->
-  <script
-    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc4s9bIOgUxi8T/jzmB5OsyNDomWFrdl7BVUF3Ve3Dv"
-    crossorigin="anonymous"
-  ></script>
+  {# ── Scripts ── #}
+  {# Chart.js CDN (used by history pages) #}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
-  <!-- Chart.js -->
-  <script
-    src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
-  ></script>
+  {# MICA utilities #}
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dropdown.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+
+  {# Mobile nav toggle #}
+  <script>
+    (function(){
+      var btn = document.getElementById("mobile-nav-toggle");
+      var nav = document.getElementById("mobile-nav");
+      if(btn && nav){
+        btn.addEventListener("click", function(){
+          nav.classList.toggle("hidden");
+          btn.setAttribute("aria-expanded", !nav.classList.contains("hidden"));
+        });
+      }
+    })();
+  </script>
 
   {% block extra_js %}{% endblock %}
 </body>

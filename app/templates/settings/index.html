@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Settings – DNS Watcher{% endblock %}
+
+{% block content %}
+<h2 class="mb-4"><i class="bi bi-gear me-2"></i>Settings</h2>
+
+<div class="row g-4">
+  <!-- DNS Resolver settings -->
+  <div class="col-12 col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header">DNS Resolver Configuration</div>
+      <div class="card-body">
+        {% if dns_settings %}
+          <dl class="row mb-0">
+            <dt class="col-sm-5">Resolvers</dt>
+            <dd class="col-sm-7">
+              {% for r in dns_settings.get_resolvers() %}
+                <code class="me-1">{{ r }}</code>
+              {% endfor %}
+            </dd>
+            <dt class="col-sm-5">Timeout</dt>
+            <dd class="col-sm-7">{{ dns_settings.timeout_seconds }}s</dd>
+            <dt class="col-sm-5">Retries</dt>
+            <dd class="col-sm-7">{{ dns_settings.retries }}</dd>
+            <dt class="col-sm-5">Flap Threshold</dt>
+            <dd class="col-sm-7">{{ dns_settings.flap_threshold }} failures</dd>
+          </dl>
+        {% else %}
+          <p class="text-muted mb-0">No settings found. Run <code>python init_db.py</code> to seed defaults.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,10 +1,25 @@
+# SPF/DMARC/DKIM Watcher – Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Web framework
 Flask>=3.1.0
 Flask-SQLAlchemy>=3.1.0
 Flask-Login>=0.6.3
 Flask-WTF>=1.2.0
-dnspython>=2.7.0
-checkdmarc>=5.14.0
-cryptography>=42.0.0
-pydnsbl>=1.1.7
+
+# WSGI / security
 Werkzeug>=3.1.0
 bcrypt>=4.0.0
+
+# DNS checking
+dnspython>=2.7.0
+checkdmarc>=5.14.0
+
+# Cryptography (DKIM key validation)
+cryptography>=42.0.0
+
+# IP reputation / DNSBL
+pydnsbl>=1.1.7
+
+# WTForms (pulled in by Flask-WTF; listed explicitly for clarity)
+WTForms>=3.1.0

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Import Domains – DNS Watcher{% endblock %}
+
+{% block content %}
+<h2 class="mb-4"><i class="bi bi-upload me-2"></i>Import Domains from Email List</h2>
+
+<div class="card shadow-sm col-12 col-lg-6">
+  <div class="card-body">
+    <p class="text-muted">
+      Upload a plain-text file containing email addresses (one per line).
+      The system will extract unique domains and add any that are not
+      already being monitored.
+    </p>
+    <form method="POST" enctype="multipart/form-data" action="#">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <div class="mb-3">
+        <label for="email_file" class="form-label fw-semibold">Email list file (.txt)</label>
+        <input class="form-control" type="file" id="email_file" name="email_file" accept=".txt,.csv" />
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-cloud-upload me-1"></i>Import
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

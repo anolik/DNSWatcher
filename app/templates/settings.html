@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 
+{#
+  Determine which tab to open initially (must be at template level, not inside a block,
+  so the variable is accessible in both {% block content %} and {% block extra_js %}).
+  - If any graph field has an error, open the DMARC tab.
+  - Otherwise default to DNS tab (sessionStorage overrides in JS).
+#}
+{% set _graph_errors = form.graph_tenant_id.errors or form.graph_client_id.errors
+                       or form.graph_client_secret.errors or form.graph_mailbox.errors %}
+{% set _initial_tab = 'dmarc' if _graph_errors else 'dns' %}
+
 {% block title %}Settings - SPF/DMARC/DKIM Watcher{% endblock %}
 
 {% block content %}
@@ -9,17 +19,35 @@
 </h1>
 
 <div class="grid grid-cols-12 gap-6">
-  {# ── Settings form ── #}
+
+  {# ── Left column: tab bar + form ── #}
   <div class="col-span-12 lg:col-span-7">
     <div class="mica-card overflow-hidden">
-      <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
-        <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
-          <i class="bi bi-hdd-network mr-1.5"></i>DNS Resolver Configuration
-        </span>
+
+      {# ── Tab bar ── #}
+      <div class="flex border-b border-light-surface-border/20 dark:border-surface-border/10 px-1 pt-1 gap-1">
+        <button type="button"
+                id="tab-btn-dns"
+                data-tab="dns"
+                class="settings-tab-btn px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none">
+          <i class="bi bi-hdd-network mr-1.5"></i>DNS &amp; Monitoring
+        </button>
+        <button type="button"
+                id="tab-btn-dmarc"
+                data-tab="dmarc"
+                class="settings-tab-btn px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none">
+          <i class="bi bi-envelope-at mr-1.5"></i>DMARC Reports
+        </button>
       </div>
-      <div class="p-4">
-        <form method="post" action="{{ url_for('settings.index') }}">
-          {{ form.hidden_tag() }}
+
+      {# ── Single form (both panels share it) ── #}
+      <form method="post" action="{{ url_for('settings.index') }}">
+        {{ form.hidden_tag() }}
+
+        {# ══════════════════════════════════════════════════════════════
+           Panel: DNS & Monitoring
+           ══════════════════════════════════════════════════════════════ #}
+        <div id="panel-dns" data-panel="dns" class="settings-tab-panel p-4">
 
           {# Resolvers #}
           <div class="mb-4">
@@ -39,7 +67,6 @@
 
           {# Timeout / Retries / Flap threshold row #}
           <div class="grid grid-cols-12 gap-3 mb-4">
-            {# Timeout #}
             <div class="col-span-12 sm:col-span-4">
               <label for="{{ form.timeout_seconds.id }}"
                      class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
@@ -53,7 +80,6 @@
               {% endfor %}
             </div>
 
-            {# Retries #}
             <div class="col-span-12 sm:col-span-4">
               <label for="{{ form.retries.id }}"
                      class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
@@ -67,7 +93,6 @@
               {% endfor %}
             </div>
 
-            {# Flap threshold #}
             <div class="col-span-12 sm:col-span-4">
               <label for="{{ form.flap_threshold.id }}"
                      class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
@@ -89,7 +114,6 @@
 
           {# Timezone / Concurrency row #}
           <div class="grid grid-cols-12 gap-3 mb-4">
-            {# Display timezone #}
             <div class="col-span-12 sm:col-span-8">
               <label for="{{ form.display_timezone.id }}"
                      class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
@@ -105,7 +129,6 @@
               {% endfor %}
             </div>
 
-            {# Check concurrency #}
             <div class="col-span-12 sm:col-span-4">
               <label for="{{ form.check_concurrency.id }}"
                      class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
@@ -142,163 +165,196 @@
             {% endfor %}
           </div>
 
-          <hr class="border-light-surface-border/20 dark:border-surface-border/10 my-4">
-
-          {# DMARC Report Fetch — Microsoft Graph API #}
-          <div class="mb-4">
-            <h3 class="text-sm font-bold text-light-content-primary dark:text-content-primary mb-3">
-              <i class="bi bi-envelope-at mr-1.5 text-primary-400"></i>DMARC Report Fetch (Microsoft Graph API)
-            </h3>
-
-            {# Enable toggle #}
-            <div class="mb-3 flex items-center gap-3">
-              {{ form.graph_enabled(id=form.graph_enabled.id, class="w-4 h-4 accent-primary-500") }}
-              <label for="{{ form.graph_enabled.id }}"
-                     class="text-sm font-semibold text-light-content-primary dark:text-content-primary cursor-pointer">
-                {{ form.graph_enabled.label.text }}
-              </label>
-            </div>
-
-            <div class="grid grid-cols-12 gap-3">
-              {# Tenant ID #}
-              <div class="col-span-12 sm:col-span-6">
-                <label for="{{ form.graph_tenant_id.id }}"
-                       class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
-                  {{ form.graph_tenant_id.label.text }}
-                </label>
-                {{ form.graph_tenant_id(id=form.graph_tenant_id.id,
-                                        class="mica-input font-mono" + (" is-invalid" if form.graph_tenant_id.errors else ""),
-                                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }}
-                {% for err in form.graph_tenant_id.errors %}<p class="mt-1 text-xs text-status-danger">{{ err }}</p>{% endfor %}
-              </div>
-
-              {# Client ID #}
-              <div class="col-span-12 sm:col-span-6">
-                <label for="{{ form.graph_client_id.id }}"
-                       class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
-                  {{ form.graph_client_id.label.text }}
-                </label>
-                {{ form.graph_client_id(id=form.graph_client_id.id,
-                                        class="mica-input font-mono" + (" is-invalid" if form.graph_client_id.errors else ""),
-                                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }}
-                {% for err in form.graph_client_id.errors %}<p class="mt-1 text-xs text-status-danger">{{ err }}</p>{% endfor %}
-              </div>
-
-              {# Client Secret #}
-              <div class="col-span-12 sm:col-span-6">
-                <label for="{{ form.graph_client_secret.id }}"
-                       class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
-                  {{ form.graph_client_secret.label.text }}
-                </label>
-                {{ form.graph_client_secret(id=form.graph_client_secret.id,
-                                             class="mica-input" + (" is-invalid" if form.graph_client_secret.errors else ""),
-                                             placeholder="Leave blank to keep current secret") }}
-                <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
-                  Leave blank to keep the existing secret unchanged.
-                </p>
-                {% for err in form.graph_client_secret.errors %}<p class="mt-1 text-xs text-status-danger">{{ err }}</p>{% endfor %}
-              </div>
-
-              {# Mailbox #}
-              <div class="col-span-12 sm:col-span-6">
-                <label for="{{ form.graph_mailbox.id }}"
-                       class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
-                  {{ form.graph_mailbox.label.text }}
-                </label>
-                {{ form.graph_mailbox(id=form.graph_mailbox.id,
-                                      class="mica-input" + (" is-invalid" if form.graph_mailbox.errors else ""),
-                                      placeholder="dmarc-reports@yourdomain.com") }}
-                <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
-                  The Exchange Online mailbox where DMARC rua= reports are sent.
-                </p>
-                {% for err in form.graph_mailbox.errors %}<p class="mt-1 text-xs text-status-danger">{{ err }}</p>{% endfor %}
-              </div>
-            </div>
-          </div>
-
           <div>
             {{ form.submit(class="btn-primary") }}
           </div>
-        </form>
-      </div>
-    </div>
-  </div>
+        </div>{# /panel-dns #}
 
-  {# ── Info sidebar ── #}
+        {# ══════════════════════════════════════════════════════════════
+           Panel: DMARC Reports (Microsoft Graph API)
+           ══════════════════════════════════════════════════════════════ #}
+        <div id="panel-dmarc" data-panel="dmarc" class="settings-tab-panel p-4 hidden">
+
+          <p class="text-sm text-light-content-muted dark:text-content-muted mb-5">
+            Automatically fetch DMARC aggregate reports from an Exchange Online mailbox
+            via Microsoft Graph API (OAuth2 client credentials). Requires an
+            <strong class="text-light-content-primary dark:text-content-primary">Azure AD App Registration</strong>
+            with the <code class="font-mono text-xs bg-gray-100 dark:bg-surface-raised px-1 py-0.5 rounded">Mail.Read</code>
+            application permission.
+          </p>
+
+          {# Enable toggle #}
+          <div class="mb-5 flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-surface-raised border border-light-surface-border/20 dark:border-surface-border/10">
+            {{ form.graph_enabled(id=form.graph_enabled.id, class="w-4 h-4 accent-primary-500 flex-shrink-0") }}
+            <label for="{{ form.graph_enabled.id }}"
+                   class="text-sm font-semibold text-light-content-primary dark:text-content-primary cursor-pointer select-none">
+              {{ form.graph_enabled.label.text }}
+            </label>
+          </div>
+
+          <div class="grid grid-cols-12 gap-4">
+
+            {# Tenant ID #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.graph_tenant_id.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.graph_tenant_id.label.text }}
+              </label>
+              {{ form.graph_tenant_id(id=form.graph_tenant_id.id,
+                                      class="mica-input font-mono text-xs" + (" is-invalid" if form.graph_tenant_id.errors else ""),
+                                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }}
+              {% for err in form.graph_tenant_id.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            {# Client ID #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.graph_client_id.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.graph_client_id.label.text }}
+              </label>
+              {{ form.graph_client_id(id=form.graph_client_id.id,
+                                      class="mica-input font-mono text-xs" + (" is-invalid" if form.graph_client_id.errors else ""),
+                                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }}
+              {% for err in form.graph_client_id.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            {# Client Secret #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.graph_client_secret.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.graph_client_secret.label.text }}
+              </label>
+              {{ form.graph_client_secret(id=form.graph_client_secret.id,
+                                           class="mica-input" + (" is-invalid" if form.graph_client_secret.errors else ""),
+                                           placeholder="Leave blank to keep current secret") }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                Leave blank to keep the existing secret unchanged.
+              </p>
+              {% for err in form.graph_client_secret.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            {# Mailbox #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.graph_mailbox.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.graph_mailbox.label.text }}
+              </label>
+              {{ form.graph_mailbox(id=form.graph_mailbox.id,
+                                    class="mica-input" + (" is-invalid" if form.graph_mailbox.errors else ""),
+                                    placeholder="dmarc-reports@yourdomain.com") }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                The Exchange Online mailbox configured as the DMARC <code class="font-mono text-xs">rua=</code> destination.
+              </p>
+              {% for err in form.graph_mailbox.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="mt-5">
+            {{ form.submit(class="btn-primary") }}
+            <a href="{{ url_for('dmarc_reports.index') }}"
+               class="ml-3 text-sm text-light-content-secondary dark:text-content-secondary hover:text-primary-500 transition-colors">
+              <i class="bi bi-file-earmark-text mr-1"></i>View DMARC Reports
+            </a>
+          </div>
+        </div>{# /panel-dmarc #}
+
+      </form>
+    </div>{# /mica-card #}
+  </div>{# /col-span-7 #}
+
+  {# ── Right column: context-sensitive sidebar ── #}
   <div class="col-span-12 lg:col-span-5 space-y-4">
-    <div class="mica-card overflow-hidden">
+
+    {# DNS sidebar (shown for DNS tab) #}
+    <div id="sidebar-dns" class="settings-sidebar mica-card overflow-hidden">
       <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
         <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
-          <i class="bi bi-info-circle mr-1.5"></i>About These Settings
+          <i class="bi bi-info-circle mr-1.5"></i>DNS &amp; Monitoring Settings
         </span>
       </div>
       <div class="p-4 text-sm text-light-content-muted dark:text-content-muted">
         <dl class="space-y-3">
           <div>
             <dt class="font-semibold text-light-content-primary dark:text-content-primary">DNS Resolvers</dt>
-            <dd>
-              IP addresses of the DNS servers used for all SPF, DMARC and DKIM lookups.
-              Multiple servers are tried in order. Defaults: 8.8.8.8, 1.1.1.1, 9.9.9.9.
-            </dd>
+            <dd>IP addresses of DNS servers used for all SPF, DMARC and DKIM lookups.
+                Multiple servers are tried in order. Defaults: 8.8.8.8, 1.1.1.1, 9.9.9.9.</dd>
           </div>
           <div>
             <dt class="font-semibold text-light-content-primary dark:text-content-primary">Timeout</dt>
-            <dd>
-              Seconds to wait for a DNS response before the query times out.
-              Increase this on slow or unreliable networks.
-            </dd>
+            <dd>Seconds to wait for a DNS response. Increase on slow or unreliable networks.</dd>
           </div>
           <div>
             <dt class="font-semibold text-light-content-primary dark:text-content-primary">Retries</dt>
-            <dd>
-              How many times to retry a failed DNS query before giving up.
-            </dd>
+            <dd>How many times to retry a failed DNS query before giving up.</dd>
           </div>
           <div>
             <dt class="font-semibold text-light-content-primary dark:text-content-primary">Flap Threshold</dt>
-            <dd>
-              Number of consecutive failures required before an issue is escalated
-              to a critical alert (anti-flapping). Setting this to 1 disables
-              anti-flapping protection.
-            </dd>
+            <dd>Consecutive failures required before escalating to a critical alert.
+                Setting to 1 disables anti-flapping protection.</dd>
           </div>
           <div>
             <dt class="font-semibold text-light-content-primary dark:text-content-primary">Display Timezone</dt>
-            <dd>
-              Controls how dates and times are shown throughout the interface.
-              All data is stored in UTC; this setting only affects display.
-            </dd>
+            <dd>Controls how dates and times are shown. All data is stored in UTC; this only affects display.</dd>
           </div>
           <div>
             <dt class="font-semibold text-light-content-primary dark:text-content-primary">Check Concurrency</dt>
-            <dd>
-              Number of domains checked simultaneously when using "Check All".
-              Higher values speed up batch checks but increase DNS load.
-              Default: 5.
-            </dd>
+            <dd>Domains checked in parallel during "Check All". Higher values speed up batch checks
+                but increase DNS load. Default: 5.</dd>
           </div>
           <div>
             <dt class="font-semibold text-light-content-primary dark:text-content-primary">Managed Domains</dt>
-            <dd>
-              List of hostnames your organization manages. The dashboard shows a
-              <span class="badge-ok">YES</span> badge for managed domains and
-              <span class="badge-pending">NO</span> for others.
-            </dd>
-          </div>
-          <div>
-            <dt class="font-semibold text-light-content-primary dark:text-content-primary">DMARC Graph API Fetch</dt>
-            <dd>
-              Automatically fetch DMARC aggregate reports from an Exchange Online mailbox using
-              Microsoft Graph API (client credentials OAuth2). Requires an Azure AD App Registration
-              with <code>Mail.Read</code> application permission.
-            </dd>
+            <dd>Hostnames your organization manages. The dashboard shows
+                <span class="badge-ok">YES</span> / <span class="badge-pending">NO</span> badges accordingly.</dd>
           </div>
         </dl>
       </div>
     </div>
 
+    {# DMARC sidebar (shown for DMARC tab) #}
+    <div id="sidebar-dmarc" class="settings-sidebar mica-card overflow-hidden hidden">
+      <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+        <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+          <i class="bi bi-info-circle mr-1.5"></i>Graph API Setup Guide
+        </span>
+      </div>
+      <div class="p-4 text-sm text-light-content-muted dark:text-content-muted space-y-3">
+        <p>Follow these steps in the <strong class="text-light-content-primary dark:text-content-primary">Azure Portal</strong>
+           to enable automatic DMARC report ingestion.</p>
+        <ol class="list-decimal list-inside space-y-2 text-xs leading-relaxed">
+          <li>Go to <strong class="text-light-content-primary dark:text-content-primary">Azure Active Directory → App registrations → New registration</strong>.</li>
+          <li>Name the app (e.g. <em>DMARC Watcher</em>), leave defaults, click <strong class="text-light-content-primary dark:text-content-primary">Register</strong>.</li>
+          <li>Copy the <strong class="text-light-content-primary dark:text-content-primary">Directory (tenant) ID</strong> and
+              <strong class="text-light-content-primary dark:text-content-primary">Application (client) ID</strong> into the fields.</li>
+          <li>Under <strong class="text-light-content-primary dark:text-content-primary">Certificates &amp; secrets → New client secret</strong> — copy the value immediately.</li>
+          <li>Under <strong class="text-light-content-primary dark:text-content-primary">API permissions → Add a permission → Microsoft Graph → Application permissions</strong> — add
+              <code class="font-mono bg-gray-100 dark:bg-surface-raised px-1 rounded">Mail.Read</code>, then
+              <strong class="text-light-content-primary dark:text-content-primary">Grant admin consent</strong>.</li>
+          <li>Enter the mailbox address that receives <code class="font-mono bg-gray-100 dark:bg-surface-raised px-1 rounded">rua=</code> reports.</li>
+        </ol>
+        <div class="pt-2 border-t border-light-surface-border/20 dark:border-surface-border/10">
+          <p class="text-xs">
+            <i class="bi bi-shield-check mr-1 text-status-ok"></i>
+            The app uses <strong class="text-light-content-primary dark:text-content-primary">client credentials</strong> (no user sign-in).
+            Unread emails with <code class="font-mono bg-gray-100 dark:bg-surface-raised px-1 rounded">.zip</code>,
+            <code class="font-mono bg-gray-100 dark:bg-surface-raised px-1 rounded">.gz</code>, or
+            <code class="font-mono bg-gray-100 dark:bg-surface-raised px-1 rounded">.xml</code> attachments are fetched
+            and marked as read after ingestion.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {# Last saved info #}
     {% if dns_settings and dns_settings.updated_at %}
-    <div class="mica-card overflow-hidden">
+    <div id="sidebar-lastsaved" class="mica-card overflow-hidden">
       <div class="p-4 text-sm text-light-content-muted dark:text-content-muted">
         <i class="bi bi-clock mr-1"></i>
         Last saved: {{ dns_settings.updated_at|to_tz }} {{ display_tz }}
@@ -308,7 +364,60 @@
       </div>
     </div>
     {% endif %}
-  </div>
-</div>
 
+  </div>{# /col-span-5 #}
+</div>{# /grid #}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var STORAGE_KEY = 'settings-active-tab';
+  var INITIAL_TAB  = {{ _initial_tab | tojson }};
+
+  /* Collect elements */
+  var tabBtns   = document.querySelectorAll('.settings-tab-btn');
+  var tabPanels = document.querySelectorAll('.settings-tab-panel');
+  var sidebars  = document.querySelectorAll('.settings-sidebar');
+
+  /* Active tab styling */
+  var ACTIVE_BTN   = ['text-primary-500', 'dark:text-primary-400', 'border-primary-500', 'dark:border-primary-400'];
+  var INACTIVE_BTN = ['text-light-content-secondary', 'dark:text-content-secondary',
+                      'border-transparent', 'hover:border-gray-300',
+                      'hover:text-light-content-primary', 'dark:hover:text-content-primary'];
+
+  function activate(tabName) {
+    /* Tab buttons */
+    tabBtns.forEach(function (btn) {
+      var isActive = btn.dataset.tab === tabName;
+      ACTIVE_BTN.forEach(function (c)   { btn.classList.toggle(c,  isActive); });
+      INACTIVE_BTN.forEach(function (c) { btn.classList.toggle(c, !isActive); });
+    });
+
+    /* Tab panels */
+    tabPanels.forEach(function (panel) {
+      panel.classList.toggle('hidden', panel.dataset.panel !== tabName);
+    });
+
+    /* Sidebars */
+    sidebars.forEach(function (sb) {
+      /* sidebar ids are "sidebar-<tabName>" */
+      var match = sb.id === 'sidebar-' + tabName;
+      sb.classList.toggle('hidden', !match);
+    });
+
+    sessionStorage.setItem(STORAGE_KEY, tabName);
+  }
+
+  /* Wire click handlers */
+  tabBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () { activate(btn.dataset.tab); });
+  });
+
+  /* Restore saved tab, then apply server-side override (e.g. validation errors) */
+  var saved = sessionStorage.getItem(STORAGE_KEY) || 'dns';
+  activate(INITIAL_TAB !== 'dns' ? INITIAL_TAB : saved);
+}());
+</script>
 {% endblock %}

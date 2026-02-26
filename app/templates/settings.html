@@ -9,6 +9,21 @@
 {% set _graph_errors = form.graph_tenant_id.errors or form.graph_client_id.errors
                        or form.graph_client_secret.errors or form.graph_mailbox.errors %}
 {% set _initial_tab = 'dmarc' if _graph_errors else 'dns' %}
+{# Feature toggle definitions for the template #}
+{% set _core_checks = [
+    ('check_spf_enabled',  'bi-shield-shaded',  'SPF',                     'Sender Policy Framework record validation'),
+    ('check_dmarc_enabled','bi-envelope-check',  'DMARC',                   'Domain-based Message Authentication, Reporting & Conformance'),
+    ('check_dkim_enabled', 'bi-key',             'DKIM',                    'DomainKeys Identified Mail signature verification'),
+    ('check_mx_enabled',   'bi-envelope',        'MX Records',              'Mail exchanger record lookup and provider detection'),
+] %}
+{% set _extra_checks = [
+    ('check_reputation_enabled',  'bi-graph-up',      'Reputation (DNSBL)',     'Domain blocklist / spam reputation check'),
+    ('check_registrar_enabled',   'bi-building',      'Registrar (WHOIS)',      'Domain registrar, creation and expiry dates'),
+    ('check_geolocation_enabled', 'bi-geo-alt',       'Geolocation & Loi 25',  'Mail server physical location and Quebec Law 25 compliance'),
+    ('check_mta_sts_enabled',     'bi-shield-lock',   'MTA-STS & TLS-RPT',     'MTA Strict Transport Security and TLS failure reporting'),
+    ('check_bimi_enabled',        'bi-image',         'BIMI',                   'Brand Indicators for Message Identification'),
+    ('check_tls_enabled',         'bi-lock',          'SMTP TLS (STARTTLS)',    'TLS encryption support on MX mail servers'),
+] %}
 
 {% block title %}Settings - SPF/DMARC/DKIM Watcher{% endblock %}
 
@@ -31,6 +46,12 @@
                 data-tab="dns"
                 class="settings-tab-btn px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none">
           <i class="bi bi-hdd-network mr-1.5"></i>DNS &amp; Monitoring
+        </button>
+        <button type="button"
+                id="tab-btn-features"
+                data-tab="features"
+                class="settings-tab-btn px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none">
+          <i class="bi bi-toggles mr-1.5"></i>Features
         </button>
         <button type="button"
                 id="tab-btn-dmarc"
@@ -169,6 +190,59 @@
             {{ form.submit(class="btn-primary") }}
           </div>
         </div>{# /panel-dns #}
+
+        {# ══════════════════════════════════════════════════════════════
+           Panel: Feature Toggles
+           ══════════════════════════════════════════════════════════════ #}
+        <div id="panel-features" data-panel="features" class="settings-tab-panel p-4 hidden">
+
+          <p class="text-sm text-light-content-muted dark:text-content-muted mb-5">
+            Enable or disable individual checks. Disabled checks are skipped during
+            domain validation, saving time and reducing external API calls.
+          </p>
+
+          {# ---- Core checks ---- #}
+          <h3 class="text-xs font-bold uppercase tracking-wider text-light-content-muted dark:text-content-muted mb-3">
+            Core checks
+          </h3>
+          <div class="space-y-2 mb-5">
+            {% for field_name, icon, label, desc in _core_checks %}
+              {% set field = form[field_name] %}
+              <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-surface-raised border border-light-surface-border/20 dark:border-surface-border/10">
+                {{ field(id=field.id, class="w-4 h-4 accent-primary-500 flex-shrink-0 mt-0.5") }}
+                <label for="{{ field.id }}" class="cursor-pointer select-none flex-grow">
+                  <span class="text-sm font-semibold text-light-content-primary dark:text-content-primary">
+                    <i class="bi {{ icon }} mr-1.5"></i>{{ label }}
+                  </span>
+                  <p class="text-xs text-light-content-muted dark:text-content-muted mt-0.5">{{ desc }}</p>
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+
+          {# ---- Informational / extended checks ---- #}
+          <h3 class="text-xs font-bold uppercase tracking-wider text-light-content-muted dark:text-content-muted mb-3">
+            Extended checks
+          </h3>
+          <div class="space-y-2 mb-5">
+            {% for field_name, icon, label, desc in _extra_checks %}
+              {% set field = form[field_name] %}
+              <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-surface-raised border border-light-surface-border/20 dark:border-surface-border/10">
+                {{ field(id=field.id, class="w-4 h-4 accent-primary-500 flex-shrink-0 mt-0.5") }}
+                <label for="{{ field.id }}" class="cursor-pointer select-none flex-grow">
+                  <span class="text-sm font-semibold text-light-content-primary dark:text-content-primary">
+                    <i class="bi {{ icon }} mr-1.5"></i>{{ label }}
+                  </span>
+                  <p class="text-xs text-light-content-muted dark:text-content-muted mt-0.5">{{ desc }}</p>
+                </label>
+              </div>
+            {% endfor %}
+          </div>
+
+          <div>
+            {{ form.submit(class="btn-primary") }}
+          </div>
+        </div>{# /panel-features #}
 
         {# ══════════════════════════════════════════════════════════════
            Panel: DMARC Reports (Microsoft Graph API)
@@ -315,6 +389,34 @@
                 <span class="badge-ok">YES</span> / <span class="badge-pending">NO</span> badges accordingly.</dd>
           </div>
         </dl>
+      </div>
+    </div>
+
+    {# Features sidebar (shown for Features tab) #}
+    <div id="sidebar-features" class="settings-sidebar mica-card overflow-hidden hidden">
+      <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+        <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+          <i class="bi bi-info-circle mr-1.5"></i>Feature Toggles
+        </span>
+      </div>
+      <div class="p-4 text-sm text-light-content-muted dark:text-content-muted space-y-3">
+        <div>
+          <dt class="font-semibold text-light-content-primary dark:text-content-primary">Core checks</dt>
+          <dd>SPF, DMARC, DKIM and MX are the primary email authentication checks. Their results
+              determine the domain's <strong class="text-light-content-primary dark:text-content-primary">overall status</strong>
+              (OK, Warning, Critical).</dd>
+        </div>
+        <div>
+          <dt class="font-semibold text-light-content-primary dark:text-content-primary">Extended checks</dt>
+          <dd>Reputation, Registrar, Geolocation, MTA-STS, BIMI and TLS are informational.
+              They do <strong class="text-light-content-primary dark:text-content-primary">not</strong> affect the overall status
+              but provide valuable context.</dd>
+        </div>
+        <div>
+          <dt class="font-semibold text-light-content-primary dark:text-content-primary">Performance</dt>
+          <dd>Disabling checks you don't need speeds up validation and reduces
+              external API calls (WHOIS, GeoIP, SMTP connections).</dd>
+        </div>
       </div>
     </div>
 

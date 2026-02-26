@@ -393,6 +393,20 @@ class DnsSettings(db.Model):
     graph_mailbox: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
     graph_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=False, nullable=False)
 
+    # ------------------------------------------------------------------
+    # Feature toggles (all default to True / enabled)
+    # ------------------------------------------------------------------
+    check_spf_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_dmarc_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_dkim_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_mx_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_reputation_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_registrar_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_geolocation_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_mta_sts_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_bimi_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    check_tls_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+
     updated_by_user: db.Mapped[User | None] = db.relationship(
         "User", foreign_keys=[updated_by], lazy="joined"
     )

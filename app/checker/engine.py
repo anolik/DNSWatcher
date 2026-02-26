@@ -73,58 +73,74 @@ def run_domain_check(
     statuses: list[str] = []
 
     # ---- SPF check ----
-    spf_result = _run_safe_check("spf", lambda: check_spf(domain.hostname, settings), dns_errors)
-    spf_status_raw = spf_result.get("status", "error") if spf_result else "error"
-    spf_status = apply_flap_logic(domain.id, "spf", spf_status_raw)
-    statuses.append(spf_status)
+    spf_result = None
+    spf_status = None
+    if settings.check_spf_enabled:
+        spf_result = _run_safe_check("spf", lambda: check_spf(domain.hostname, settings), dns_errors)
+        spf_status_raw = spf_result.get("status", "error") if spf_result else "error"
+        spf_status = apply_flap_logic(domain.id, "spf", spf_status_raw)
+        statuses.append(spf_status)
 
     # ---- DMARC check ----
-    dmarc_result = _run_safe_check("dmarc", lambda: check_dmarc(domain.hostname, settings), dns_errors)
-    dmarc_status_raw = dmarc_result.get("status", "error") if dmarc_result else "error"
-    dmarc_status = apply_flap_logic(domain.id, "dmarc", dmarc_status_raw)
-    statuses.append(dmarc_status)
+    dmarc_result = None
+    dmarc_status = None
+    if settings.check_dmarc_enabled:
+        dmarc_result = _run_safe_check("dmarc", lambda: check_dmarc(domain.hostname, settings), dns_errors)
+        dmarc_status_raw = dmarc_result.get("status", "error") if dmarc_result else "error"
+        dmarc_status = apply_flap_logic(domain.id, "dmarc", dmarc_status_raw)
+        statuses.append(dmarc_status)
 
     # ---- MX check (run BEFORE DKIM to identify provider) ----
-    mx_result = _run_safe_check(
-        "mx",
-        lambda: check_mx(domain.hostname, settings),
-        dns_errors,
-    )
+    mx_result = None
+    if settings.check_mx_enabled:
+        mx_result = _run_safe_check(
+            "mx",
+            lambda: check_mx(domain.hostname, settings),
+            dns_errors,
+        )
 
     # ---- Sync DKIM selectors based on MX provider ----
     mx_provider = mx_result.get("provider") if mx_result else None
     active_selectors = _sync_dkim_selectors(domain, mx_provider)
 
     # ---- DKIM check (uses provider-aware selectors) ----
-    dkim_result = _run_safe_check(
-        "dkim",
-        lambda: check_dkim(domain.hostname, active_selectors, settings),
-        dns_errors,
-    )
-    dkim_status_raw = dkim_result.get("status", "error") if dkim_result else "error"
-    dkim_status = apply_flap_logic(domain.id, "dkim", dkim_status_raw)
-    statuses.append(dkim_status)
+    dkim_result = None
+    dkim_status = None
+    if settings.check_dkim_enabled:
+        dkim_result = _run_safe_check(
+            "dkim",
+            lambda: check_dkim(domain.hostname, active_selectors, settings),
+            dns_errors,
+        )
+        dkim_status_raw = dkim_result.get("status", "error") if dkim_result else "error"
+        dkim_status = apply_flap_logic(domain.id, "dkim", dkim_status_raw)
+        statuses.append(dkim_status)
 
     # ---- Reputation check ----
-    rep_result = _run_safe_check(
-        "reputation",
-        lambda: check_reputation(domain.hostname, settings),
-        dns_errors,
-    )
-    rep_status_raw = rep_result.get("status", "error") if rep_result else "error"
-    rep_status = apply_flap_logic(domain.id, "reputation", rep_status_raw)
-    statuses.append(rep_status)
+    rep_result = None
+    rep_status = None
+    if settings.check_reputation_enabled:
+        rep_result = _run_safe_check(
+            "reputation",
+            lambda: check_reputation(domain.hostname, settings),
+            dns_errors,
+        )
+        rep_status_raw = rep_result.get("status", "error") if rep_result else "error"
+        rep_status = apply_flap_logic(domain.id, "reputation", rep_status_raw)
+        statuses.append(rep_status)
 
     # ---- Registrar check (informational, does NOT affect overall status) ----
-    registrar_result = _run_safe_check(
-        "registrar",
-        lambda: check_registrar(domain.hostname),
-        dns_errors,
-    )
+    registrar_result = None
+    if settings.check_registrar_enabled:
+        registrar_result = _run_safe_check(
+            "registrar",
+            lambda: check_registrar(domain.hostname),
+            dns_errors,
+        )
 
     # ---- Geolocation check (informational, depends on MX results) ----
     geo_result = None
-    if mx_result and mx_result.get("records"):
+    if settings.check_geolocation_enabled and mx_result and mx_result.get("records"):
         geo_result = _run_safe_check(
             "geolocation",
             lambda: check_geolocation(mx_result["records"], settings),
@@ -132,22 +148,26 @@ def run_domain_check(
         )
 
     # ---- MTA-STS check (informational, does NOT affect overall status) ----
-    mta_sts_result = _run_safe_check(
-        "mta_sts",
-        lambda: check_mta_sts(domain.hostname, settings),
-        dns_errors,
-    )
+    mta_sts_result = None
+    if settings.check_mta_sts_enabled:
+        mta_sts_result = _run_safe_check(
+            "mta_sts",
+            lambda: check_mta_sts(domain.hostname, settings),
+            dns_errors,
+        )
 
     # ---- BIMI check (informational, does NOT affect overall status) ----
-    bimi_result = _run_safe_check(
-        "bimi",
-        lambda: check_bimi(domain.hostname, settings),
-        dns_errors,
-    )
+    bimi_result = None
+    if settings.check_bimi_enabled:
+        bimi_result = _run_safe_check(
+            "bimi",
+            lambda: check_bimi(domain.hostname, settings),
+            dns_errors,
+        )
 
     # ---- TLS check (informational, depends on MX results) ----
     tls_result = None
-    if mx_result and mx_result.get("records"):
+    if settings.check_tls_enabled and mx_result and mx_result.get("records"):
         tls_result = _run_safe_check(
             "tls",
             lambda: check_tls(mx_result["records"], settings),

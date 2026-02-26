@@ -126,6 +126,18 @@ class DnsSettingsForm(FlaskForm):
             "placeholder": "example.com\nmail.example.com\nother.org",
         },
     )
+    # Feature toggles
+    check_spf_enabled: BooleanField = BooleanField("SPF")
+    check_dmarc_enabled: BooleanField = BooleanField("DMARC")
+    check_dkim_enabled: BooleanField = BooleanField("DKIM")
+    check_mx_enabled: BooleanField = BooleanField("MX Records")
+    check_reputation_enabled: BooleanField = BooleanField("Reputation (DNSBL)")
+    check_registrar_enabled: BooleanField = BooleanField("Registrar (WHOIS)")
+    check_geolocation_enabled: BooleanField = BooleanField("Geolocation & Loi 25")
+    check_mta_sts_enabled: BooleanField = BooleanField("MTA-STS & TLS-RPT")
+    check_bimi_enabled: BooleanField = BooleanField("BIMI")
+    check_tls_enabled: BooleanField = BooleanField("SMTP TLS (STARTTLS)")
+
     graph_enabled: BooleanField = BooleanField("Enable Microsoft Graph API auto-fetch")
     graph_tenant_id: StringField = StringField("Azure Tenant ID", validators=[Optional()])
     graph_client_id: StringField = StringField("App (Client) ID", validators=[Optional()])

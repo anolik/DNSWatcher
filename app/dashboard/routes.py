@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 
 from flask import abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -229,7 +230,12 @@ def check_domain(domain_id: int):
 @bp.route("/domains/check-all", methods=["POST"])
 @login_required
 def check_all_domains():
-    """Trigger manual checks for all active domains."""
+    """Trigger manual checks for all active domains in a background thread.
+
+    DNS checks for multiple domains can easily exceed Gunicorn's worker
+    timeout, so the work is dispatched to a daemon thread.  The HTTP
+    response returns immediately with an informational flash message.
+    """
     # Rate limit the global "check all" action with entity_id=0 (sentinel).
     # 60 seconds between consecutive check-all requests prevents runaway load.
     if is_rate_limited("all", 0):
@@ -240,23 +246,42 @@ def check_all_domains():
         return redirect(url_for("dashboard.index"))
 
     logger.info("Manual check-all triggered: user=%r", current_user.username)
-    try:
-        from app.checker.engine import run_all_checks
 
-        results = run_all_checks(trigger_type="manual")
-        db.session.commit()
-        logger.info(
-            "Manual check-all complete: domains_checked=%d user=%r",
-            len(results),
-            current_user.username,
-        )
-        flash("Manual check completed for all active domains.", "success")
+    try:
+        from app.checker.engine import run_all_checks  # noqa: PLC0415
     except ImportError:
         flash("Check engine not yet available.", "warning")
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Manual check-all failed: error=%s user=%r", exc, current_user.username)
-        flash(f"Check-all failed: {exc}", "danger")
+        return redirect(url_for("dashboard.index"))
 
+    from flask import current_app
+
+    app = current_app._get_current_object()
+
+    def _run_checks_background(app_obj: object) -> None:
+        """Execute the full check batch inside an application context."""
+        with app_obj.app_context():
+            try:
+                results = run_all_checks(trigger_type="manual")
+                logger.info(
+                    "Background check-all complete: domains_checked=%d",
+                    len(results),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Background check-all failed: %s", exc)
+
+    thread = threading.Thread(
+        target=_run_checks_background,
+        args=(app,),
+        daemon=True,
+        name="check-all-bg",
+    )
+    thread.start()
+
+    flash(
+        "DNS checks started in background — results will appear as each domain completes. "
+        "Refresh the page to see updates.",
+        "info",
+    )
     return redirect(url_for("dashboard.index"))
 
 

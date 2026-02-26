@@ -489,11 +489,61 @@
             </dd>
             {% endif %}
 
-            {% if mta_sts_details.get('tls_rpt_record') %}
-            <dt class="font-semibold text-light-content-secondary dark:text-content-secondary">TLS-RPT</dt>
-            <dd class="font-mono text-xs break-all text-light-content-primary dark:text-content-primary">{{ mta_sts_details.tls_rpt_record }}</dd>
-            {% endif %}
           </dl>
+
+          {# ---- TLS-RPT sub-section ---- #}
+          <div class="mt-3 pt-3 border-t border-light-surface-border/20 dark:border-surface-border/10">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+                <i class="bi bi-envelope-paper mr-1"></i>TLS-RPT
+              </span>
+              {% if mta_sts_details.get('tls_rpt_valid') == true %}
+                <span class="badge-ok">Valid</span>
+              {% elif mta_sts_details.get('tls_rpt_valid') == false %}
+                <span class="badge-warning">Invalid</span>
+              {% elif mta_sts_details.get('tls_rpt_record') %}
+                <span class="badge-pending">Unknown</span>
+              {% else %}
+                <span class="badge-pending">Not configured</span>
+              {% endif %}
+            </div>
+
+            {% if mta_sts_details.get('tls_rpt_record') %}
+              <p class="font-mono text-xs break-all text-light-content-primary dark:text-content-primary mb-2">
+                {{ mta_sts_details.tls_rpt_record }}
+              </p>
+
+              {% if mta_sts_details.get('tls_rpt_rua') %}
+              <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                <dt class="font-semibold text-light-content-secondary dark:text-content-secondary">Report URIs</dt>
+                <dd>
+                  {% for uri in mta_sts_details.tls_rpt_rua %}
+                    <div class="text-xs">
+                      {% if uri.startswith('mailto:') %}
+                        <i class="bi bi-envelope text-primary-500 mr-1"></i>
+                      {% elif uri.startswith('https:') %}
+                        <i class="bi bi-globe text-primary-500 mr-1"></i>
+                      {% else %}
+                        <i class="bi bi-exclamation-triangle text-status-warning mr-1"></i>
+                      {% endif %}
+                      <code>{{ uri }}</code>
+                    </div>
+                  {% endfor %}
+                </dd>
+              </dl>
+              {% endif %}
+
+              {% if mta_sts_details.get('tls_rpt_warnings') %}
+                {% for warn in mta_sts_details.tls_rpt_warnings %}
+                  <div class="text-status-warning text-xs mt-1"><i class="bi bi-exclamation-triangle mr-1"></i>{{ warn }}</div>
+                {% endfor %}
+              {% endif %}
+            {% else %}
+              <p class="text-xs text-light-content-muted dark:text-content-muted">
+                <em>No TLS-RPT record at _smtp._tls.{{ domain.hostname }}</em>
+              </p>
+            {% endif %}
+          </div>
         {% else %}
           <p class="text-sm text-light-content-muted dark:text-content-muted"><em>No MTA-STS record found.</em></p>
         {% endif %}

@@ -73,6 +73,8 @@ def check_mta_sts(domain: str, settings: "DnsSettings | None") -> dict[str, Any]
             "policy_reachable": None,
             "tls_rpt_record": None,
             "tls_rpt_rua": [],
+            "tls_rpt_valid": None,
+            "tls_rpt_warnings": [],
             "warnings": warnings,
         }
 
@@ -96,12 +98,21 @@ def check_mta_sts(domain: str, settings: "DnsSettings | None") -> dict[str, Any]
     tls_rpt_record: str | None = None
     tls_rpt_rua: list[str] = []
 
+    tls_rpt_valid: bool | None = None
+    tls_rpt_warnings: list[str] = []
+
     if tls_rpt_records:
         tls_rpt_record = _find_tls_rpt_record(tls_rpt_records)
         if tls_rpt_record:
             rpt_tags = _parse_tags(tls_rpt_record)
             rua_raw = rpt_tags.get("rua", "")
             tls_rpt_rua = [u.strip() for u in rua_raw.split(",") if u.strip()]
+            tls_rpt_valid, tls_rpt_warnings = _validate_tls_rpt(rpt_tags, tls_rpt_rua)
+
+    # Warn if MTA-STS is present but TLS-RPT is missing (best practice per RFC 8460)
+    if sts_record and not tls_rpt_record:
+        warnings.append("MTA-STS is configured but no TLS-RPT record found. "
+                         "Consider adding a _smtp._tls TXT record for failure reporting.")
 
     # ---- Determine status ----
     status = _compute_status(policy_mode, policy_reachable, warnings)
@@ -117,6 +128,8 @@ def check_mta_sts(domain: str, settings: "DnsSettings | None") -> dict[str, Any]
         "policy_reachable": policy_reachable,
         "tls_rpt_record": tls_rpt_record,
         "tls_rpt_rua": tls_rpt_rua,
+        "tls_rpt_valid": tls_rpt_valid,
+        "tls_rpt_warnings": tls_rpt_warnings,
         "warnings": warnings,
     }
 
@@ -265,6 +278,45 @@ def _compute_status(
     return "info"
 
 
+def _validate_tls_rpt(
+    tags: dict[str, str],
+    rua_uris: list[str],
+) -> tuple[bool, list[str]]:
+    """Validate a TLS-RPT record per RFC 8460.
+
+    Checks:
+        1. Version tag is ``TLSRPTv1`` (required).
+        2. ``rua`` tag is present and non-empty (required).
+        3. Each URI uses an allowed scheme (``mailto:`` or ``https:``).
+
+    Args:
+        tags: Parsed tag dict from the TLS-RPT TXT record.
+        rua_uris: List of report URI strings extracted from the ``rua`` tag.
+
+    Returns:
+        A (valid, warnings) tuple.
+    """
+    rpt_warnings: list[str] = []
+
+    # 1. Version check (RFC 8460 §3: "v=TLSRPTv1" is mandatory)
+    version = tags.get("v", "")
+    if version.lower() != "tlsrptv1":
+        rpt_warnings.append(f"Invalid TLS-RPT version: {version!r} (expected TLSRPTv1)")
+
+    # 2. rua tag is required (RFC 8460 §3)
+    if not rua_uris:
+        rpt_warnings.append("Missing or empty 'rua' tag — no report destination configured")
+        return False, rpt_warnings
+
+    # 3. Each URI must use mailto: or https: scheme
+    for uri in rua_uris:
+        if not uri.startswith("mailto:") and not uri.startswith("https:"):
+            rpt_warnings.append(f"Invalid report URI scheme: {uri!r} (must be mailto: or https:)")
+
+    valid = len(rpt_warnings) == 0
+    return valid, rpt_warnings
+
+
 def _error_result(warnings: list[str]) -> dict[str, Any]:
     """Return an error result dict."""
     return {
@@ -278,5 +330,7 @@ def _error_result(warnings: list[str]) -> dict[str, Any]:
         "policy_reachable": None,
         "tls_rpt_record": None,
         "tls_rpt_rua": [],
+        "tls_rpt_valid": None,
+        "tls_rpt_warnings": [],
         "warnings": warnings,
     }

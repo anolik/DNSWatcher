@@ -6,5 +6,5 @@ providers = ["python", "node"]
 [phases.setup]
 nixPkgs = ["python312", "gcc"]
 
-[start]
-cmd = "mkdir -p instance && python init_db.py && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
+# Start command is defined in railway.toml [deploy] startCommand
+# Do NOT define [start] here to avoid overriding railway.toml

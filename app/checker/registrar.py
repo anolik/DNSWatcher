@@ -4,19 +4,42 @@ Domain registrar checker — retrieves WHOIS information for a domain.
 Uses the ``python-whois`` library with graceful fallback if the package
 is not installed.  WHOIS failures never affect the domain check pipeline;
 they are purely informational.
+
+A hard 15-second thread-based timeout guards against the ``python-whois``
+library hanging on recursive WHOIS referral chains (each sub-query gets
+its own socket timeout, so the library's ``timeout`` parameter does not
+bound total wall-clock time).
 """
 
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Hard wall-clock limit for the entire WHOIS lookup (seconds).
+_WHOIS_HARD_TIMEOUT: int = 15
+
+# Module-level single-thread executor reused across calls to avoid the
+# overhead of creating a new thread per lookup.
+_whois_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whois")
+
+_EMPTY_RESULT: dict[str, Any] = {
+    "registrar": None,
+    "creation_date": None,
+    "expiration_date": None,
+    "name_servers": [],
+}
+
 
 def check_registrar(domain: str) -> dict[str, Any]:
     """Query WHOIS for *domain* and return registrar information.
+
+    The lookup runs inside a thread with a hard timeout so that a
+    hanging WHOIS server cannot block the entire check pipeline.
 
     Args:
         domain: The domain name to look up.
@@ -30,28 +53,32 @@ def check_registrar(domain: str) -> dict[str, Any]:
             error (str|None): Error message if the lookup failed.
     """
     try:
-        import whois
+        import whois  # noqa: PLC0415
     except ImportError:
         logger.warning("python-whois not installed; skipping registrar lookup")
-        return {
-            "registrar": None,
-            "creation_date": None,
-            "expiration_date": None,
-            "name_servers": [],
-            "error": "python-whois package not installed",
-        }
+        return {**_EMPTY_RESULT, "error": "python-whois package not installed"}
 
+    future = _whois_executor.submit(_do_whois_lookup, whois, domain)
     try:
-        w = whois.whois(domain, timeout=10)
+        return future.result(timeout=_WHOIS_HARD_TIMEOUT)
+    except FuturesTimeoutError:
+        logger.warning(
+            "WHOIS lookup timed out for %s after %ds", domain, _WHOIS_HARD_TIMEOUT
+        )
+        future.cancel()
+        return {**_EMPTY_RESULT, "error": f"WHOIS lookup timed out after {_WHOIS_HARD_TIMEOUT}s"}
     except Exception as exc:
         logger.warning("WHOIS lookup failed for %s: %s", domain, exc)
-        return {
-            "registrar": None,
-            "creation_date": None,
-            "expiration_date": None,
-            "name_servers": [],
-            "error": f"WHOIS lookup failed: {exc}",
-        }
+        return {**_EMPTY_RESULT, "error": f"WHOIS lookup failed: {exc}"}
+
+
+def _do_whois_lookup(whois_module: Any, domain: str) -> dict[str, Any]:
+    """Run the actual whois query (called inside the executor thread)."""
+    try:
+        w = whois_module.whois(domain, timeout=8)
+    except Exception as exc:
+        logger.warning("WHOIS lookup failed for %s: %s", domain, exc)
+        return {**_EMPTY_RESULT, "error": f"WHOIS lookup failed: {exc}"}
 
     return {
         "registrar": w.registrar if w.registrar else None,

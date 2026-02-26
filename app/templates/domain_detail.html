@@ -501,6 +501,111 @@
     </div>
   </div>
 
+  {# ──────────── SMTP TLS Card ──────────── #}
+  <div class="col-span-12 lg:col-span-6">
+    <div class="mica-card h-full overflow-hidden">
+      <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between">
+        <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+          <i class="bi bi-lock mr-1.5"></i>SMTP TLS
+        </span>
+        {{ status_badge(latest_result.tls_status) }}
+      </div>
+      <div class="p-0">
+        {% if tls_details.get('servers') %}
+          <div class="overflow-x-auto">
+            <table class="mica-table">
+              <thead>
+                <tr>
+                  <th>Mail Server</th>
+                  <th class="text-center">STARTTLS</th>
+                  <th class="text-center">TLS Version</th>
+                  <th>Cipher</th>
+                  <th>Certificate</th>
+                  <th class="text-center">Expiry</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for srv in tls_details.servers %}
+                <tr>
+                  <td class="text-sm"><code>{{ srv.get('exchange', '?') }}</code></td>
+                  <td class="text-center">
+                    {% if srv.get('starttls') %}
+                      <span class="badge-ok">Supported</span>
+                    {% elif srv.get('error') %}
+                      <span class="badge-pending">Error</span>
+                    {% else %}
+                      <span class="badge-critical">Not supported</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-center">
+                    {% if srv.get('tls_version') == 'TLSv1.3' %}
+                      <span class="badge-ok">{{ srv.tls_version }}</span>
+                    {% elif srv.get('tls_version') == 'TLSv1.2' %}
+                      <span class="badge-warning">{{ srv.tls_version }}</span>
+                    {% elif srv.get('tls_version') %}
+                      <span class="badge-critical">{{ srv.tls_version }}</span>
+                    {% else %}
+                      <span class="text-light-content-muted dark:text-content-muted">&mdash;</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-sm">
+                    {% if srv.get('cipher') %}
+                      <code class="text-xs">{{ srv.cipher }}</code>
+                    {% else %}
+                      <span class="text-light-content-muted dark:text-content-muted">&mdash;</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-sm">
+                    {% if srv.get('cert_subject') %}
+                      <code class="text-xs">{{ srv.cert_subject }}</code>
+                      {% if srv.get('cert_issuer') %}
+                        <div class="text-xs text-light-content-muted dark:text-content-muted">{{ srv.cert_issuer }}</div>
+                      {% endif %}
+                    {% else %}
+                      <span class="text-light-content-muted dark:text-content-muted">&mdash;</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-center text-sm">
+                    {% if srv.get('cert_expiry') %}
+                      {% if srv.get('cert_valid') == true %}
+                        <span class="badge-ok">{{ srv.cert_expiry }}</span>
+                      {% elif srv.get('cert_valid') == false %}
+                        <span class="badge-critical">{{ srv.cert_expiry }}</span>
+                      {% else %}
+                        <span class="badge-pending">{{ srv.cert_expiry }}</span>
+                      {% endif %}
+                    {% else %}
+                      <span class="text-light-content-muted dark:text-content-muted">&mdash;</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if tls_details.get('all_starttls') %}
+          <div class="px-4 py-2 bg-green-50 dark:bg-green-900/10 border-t border-light-surface-border/20 dark:border-surface-border/10 text-sm">
+            <i class="bi bi-check-circle text-status-success mr-1"></i>
+            All mail servers support STARTTLS.
+          </div>
+          {% elif tls_details.get('servers') | selectattr('starttls') | list | length > 0 %}
+          <div class="px-4 py-2 bg-amber-50 dark:bg-amber-900/10 border-t border-light-surface-border/20 dark:border-surface-border/10 text-sm">
+            <i class="bi bi-exclamation-triangle text-status-warning mr-1"></i>
+            Some mail servers lack STARTTLS support.
+          </div>
+          {% else %}
+          <div class="px-4 py-2 bg-red-50 dark:bg-red-900/10 border-t border-light-surface-border/20 dark:border-surface-border/10 text-sm">
+            <i class="bi bi-x-circle text-status-danger mr-1"></i>
+            No mail servers support STARTTLS.
+          </div>
+          {% endif %}
+        {% else %}
+          <div class="p-4 text-sm text-light-content-muted dark:text-content-muted"><em>No TLS data available.</em></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
   {# ──────────── BIMI Card ──────────── #}
   <div class="col-span-12 lg:col-span-6">
     <div class="mica-card h-full overflow-hidden">

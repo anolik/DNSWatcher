@@ -3,7 +3,7 @@ builder = "nixpacks"
 nixpacksConfigPath = "nixpacks.toml"
 
 [deploy]
-startCommand = "python init_db.py && python create_admin.py --username $ADMIN_USER --password $ADMIN_PASS || true && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
+startCommand = "python init_db.py && python migrate_add_tls.py && python create_admin.py --username $ADMIN_USER --password $ADMIN_PASS || true && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 5

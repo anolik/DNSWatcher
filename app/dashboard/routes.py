@@ -313,6 +313,7 @@ def domain_detail(domain_id: int):
     law25_status = latest_result.law25_status if latest_result else None
     mta_sts_details = latest_result.get_mta_sts_details() if latest_result else {}
     bimi_details = latest_result.get_bimi_details() if latest_result else {}
+    tls_details = latest_result.get_tls_details() if latest_result else {}
 
     # DMARC reports linked to this domain
     dmarc_reports = (
@@ -343,6 +344,7 @@ def domain_detail(domain_id: int):
         law25_status=law25_status,
         mta_sts_details=mta_sts_details,
         bimi_details=bimi_details,
+        tls_details=tls_details,
         dmarc_reports=dmarc_reports,
     )
 

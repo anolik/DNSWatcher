@@ -215,6 +215,9 @@ class CheckResult(db.Model):
     bimi_record: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
     bimi_details: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
 
+    tls_status: db.Mapped[str | None] = db.mapped_column(db.String(20), nullable=True)
+    tls_details: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
+
     dns_errors: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
 
     execution_time_ms: db.Mapped[int | None] = db.mapped_column(db.Integer, nullable=True)
@@ -264,6 +267,10 @@ class CheckResult(db.Model):
     def get_bimi_details(self) -> dict:
         """Deserialise bimi_details JSON, returning an empty dict on failure."""
         return _load_json(self.bimi_details)
+
+    def get_tls_details(self) -> dict:
+        """Deserialise tls_details JSON, returning an empty dict on failure."""
+        return _load_json(self.tls_details)
 
     def __repr__(self) -> str:
         return (

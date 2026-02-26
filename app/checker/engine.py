@@ -33,6 +33,7 @@ from app.checker.mx import PROVIDER_DKIM_SELECTORS, check_mx
 from app.checker.registrar import check_registrar
 from app.checker.reputation import check_reputation
 from app.checker.spf import check_spf
+from app.checker.tls import check_tls
 from app.models import CheckResult, DkimSelector, DnsSettings, Domain
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,15 @@ def run_domain_check(
         dns_errors,
     )
 
+    # ---- TLS check (informational, depends on MX results) ----
+    tls_result = None
+    if mx_result and mx_result.get("records"):
+        tls_result = _run_safe_check(
+            "tls",
+            lambda: check_tls(mx_result["records"], settings),
+            dns_errors,
+        )
+
     # ---- Compute overall status ----
     overall_status = _worst_of_statuses(statuses)
 
@@ -178,6 +188,8 @@ def run_domain_check(
         bimi_status=bimi_result.get("status") if bimi_result else None,
         bimi_record=bimi_result.get("record") if bimi_result else None,
         bimi_details=_to_json(bimi_result),
+        tls_status=tls_result.get("status") if tls_result else None,
+        tls_details=_to_json(tls_result),
         dns_errors=_to_json(dns_errors) if dns_errors else None,
         execution_time_ms=elapsed_ms,
     )

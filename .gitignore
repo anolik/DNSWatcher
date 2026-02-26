@@ -16,3 +16,7 @@ build/
 htmlcov/
 .coverage
 *.log
+.venv/
+node_modules/
+.claude/
+data/

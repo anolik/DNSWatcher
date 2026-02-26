@@ -67,6 +67,18 @@ def detect_changes(domain_id: int, new_result: CheckResult) -> list[ChangeLog]:
     # ---- Reputation comparisons ----
     changes.extend(_compare_reputation(domain_id, previous, new_result))
 
+    # ---- MX comparisons ----
+    changes.extend(_compare_mx(domain_id, previous, new_result))
+
+    # ---- Registrar comparisons ----
+    changes.extend(_compare_registrar(domain_id, previous, new_result))
+
+    # ---- MTA-STS comparisons ----
+    changes.extend(_compare_mta_sts(domain_id, previous, new_result))
+
+    # ---- BIMI comparisons ----
+    changes.extend(_compare_bimi(domain_id, previous, new_result))
+
     # ---- Overall status ----
     changes.extend(_compare_overall(domain_id, previous, new_result))
 
@@ -467,6 +479,175 @@ def _compare_reputation(
                 ", ".join(sorted(delisted)),
                 None,
                 "info",
+            )
+        )
+
+    return changes
+
+
+# ---------------------------------------------------------------------------
+# MX diff
+# ---------------------------------------------------------------------------
+
+
+def _compare_mx(
+    domain_id: int,
+    old: CheckResult,
+    new: CheckResult,
+) -> list[ChangeLog]:
+    changes: list[ChangeLog] = []
+
+    # MX provider change
+    old_provider = old.mx_provider or ""
+    new_provider = new.mx_provider or ""
+    if old_provider != new_provider and (old_provider or new_provider):
+        changes.append(
+            _make_entry(
+                domain_id,
+                "mx",
+                "mx_provider",
+                old_provider or None,
+                new_provider or None,
+                "info",
+            )
+        )
+
+    return changes
+
+
+# ---------------------------------------------------------------------------
+# Registrar diff
+# ---------------------------------------------------------------------------
+
+
+def _compare_registrar(
+    domain_id: int,
+    old: CheckResult,
+    new: CheckResult,
+) -> list[ChangeLog]:
+    changes: list[ChangeLog] = []
+
+    old_registrar = old.registrar or ""
+    new_registrar = new.registrar or ""
+    if old_registrar != new_registrar and (old_registrar or new_registrar):
+        changes.append(
+            _make_entry(
+                domain_id,
+                "registrar",
+                "registrar_name",
+                old_registrar or None,
+                new_registrar or None,
+                "info",
+            )
+        )
+
+    return changes
+
+
+# ---------------------------------------------------------------------------
+# MTA-STS diff
+# ---------------------------------------------------------------------------
+
+
+def _compare_mta_sts(
+    domain_id: int,
+    old: CheckResult,
+    new: CheckResult,
+) -> list[ChangeLog]:
+    changes: list[ChangeLog] = []
+
+    old_status = old.mta_sts_status or ""
+    new_status = new.mta_sts_status or ""
+
+    if old_status != new_status and (old_status or new_status):
+        severity = _status_change_severity(old.mta_sts_status, new.mta_sts_status)
+        changes.append(
+            _make_entry(
+                domain_id,
+                "mta_sts",
+                "mta_sts_status",
+                old.mta_sts_status,
+                new.mta_sts_status,
+                severity,
+            )
+        )
+
+    # Detect policy_mode changes (enforce → testing is a degradation)
+    old_details = old.get_mta_sts_details() if hasattr(old, "get_mta_sts_details") else {}
+    new_details = new.get_mta_sts_details() if hasattr(new, "get_mta_sts_details") else {}
+    old_mode = old_details.get("policy_mode") or ""
+    new_mode = new_details.get("policy_mode") or ""
+
+    if old_mode != new_mode and (old_mode or new_mode):
+        _MODE_RANK = {"enforce": 2, "testing": 1, "none": 0}
+        old_rank = _MODE_RANK.get(old_mode, -1)
+        new_rank = _MODE_RANK.get(new_mode, -1)
+        severity = "warning" if new_rank < old_rank else "info"
+        changes.append(
+            _make_entry(
+                domain_id,
+                "mta_sts",
+                "mta_sts_policy_mode",
+                old_mode or None,
+                new_mode or None,
+                severity,
+            )
+        )
+
+    return changes
+
+
+# ---------------------------------------------------------------------------
+# BIMI diff
+# ---------------------------------------------------------------------------
+
+
+def _compare_bimi(
+    domain_id: int,
+    old: CheckResult,
+    new: CheckResult,
+) -> list[ChangeLog]:
+    changes: list[ChangeLog] = []
+
+    old_status = old.bimi_status or ""
+    new_status = new.bimi_status or ""
+
+    if old_status != new_status and (old_status or new_status):
+        # Record added or removed
+        if not old_status and new_status:
+            severity = "info"  # BIMI appeared
+        elif old_status and not new_status:
+            severity = "info"  # BIMI disappeared
+        else:
+            severity = _status_change_severity(old.bimi_status, new.bimi_status)
+
+        changes.append(
+            _make_entry(
+                domain_id,
+                "bimi",
+                "bimi_status",
+                old.bimi_status,
+                new.bimi_status,
+                severity,
+            )
+        )
+
+    # Detect record text changes
+    if _normalise(old.bimi_record) != _normalise(new.bimi_record):
+        if old.bimi_record and new.bimi_record:
+            severity = "info"
+        elif not old.bimi_record and new.bimi_record:
+            severity = "info"
+        else:
+            severity = "info"
+        changes.append(
+            _make_entry(
+                domain_id,
+                "bimi",
+                "bimi_record",
+                old.bimi_record,
+                new.bimi_record,
+                severity,
             )
         )
 

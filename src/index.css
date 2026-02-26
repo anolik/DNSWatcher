@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Theme-aware body defaults */
+  body {
+    @apply bg-light-surface-bg0 text-light-content-primary
+           dark:bg-surface-bg0 dark:text-content-primary
+           font-sans transition-colors duration-300;
+  }
+}
+
+@layer utilities {
+  /* Glass surface utility */
+  .glass-surface {
+    @apply bg-surface-card/50 backdrop-blur-xl
+           border border-surface-border/10
+           shadow-glass;
+  }
+
+  .glass-surface-light {
+    @apply bg-light-surface-card/80 backdrop-blur-xl
+           border border-light-surface-border/20
+           shadow-ambient;
+  }
+}

@@ -25,9 +25,9 @@ class AddDomainForm(FlaskForm):
             DataRequired(message="Hostname is required."),
             Length(min=3, max=255, message="Hostname must be between 3 and 255 characters."),
         ],
-        render_kw={"placeholder": "example.com", "class": "form-control"},
+        render_kw={"placeholder": "example.com"},
     )
-    submit: SubmitField = SubmitField("Add Domain", render_kw={"class": "btn btn-primary"})
+    submit: SubmitField = SubmitField("Add Domain")
 
     def validate_hostname(self, field: StringField) -> None:
         """Enforce RFC-compliant hostname format (lowercase)."""
@@ -48,6 +48,6 @@ class AddSelectorForm(FlaskForm):
             DataRequired(message="Selector name is required."),
             Length(min=1, max=100, message="Selector must be between 1 and 100 characters."),
         ],
-        render_kw={"placeholder": "default", "class": "form-control"},
+        render_kw={"placeholder": "default"},
     )
-    submit: SubmitField = SubmitField("Add Selector", render_kw={"class": "btn btn-primary"})
+    submit: SubmitField = SubmitField("Add Selector")

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/ui.html" import status_badge, severity_badge, card, flash_messages, modal %}
 
 {% block title %}DKIM Selectors - {{ domain.hostname }}{% endblock %}
 
@@ -6,45 +7,50 @@
 
 {# ── Breadcrumb ── #}
 <nav aria-label="breadcrumb" class="mb-3">
-  <ol class="breadcrumb">
-    <li class="breadcrumb-item">
-      <a href="{{ url_for('dashboard.index') }}">Dashboard</a>
+  <ol class="flex items-center gap-2 text-sm text-light-content-muted dark:text-content-muted">
+    <li>
+      <a href="{{ url_for('dashboard.index') }}"
+         class="hover:text-primary-500 dark:hover:text-primary-300 transition-colors">Dashboard</a>
     </li>
-    <li class="breadcrumb-item">
-      <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}">
-        {{ domain.hostname }}
-      </a>
+    <li><i class="bi bi-chevron-right text-xs"></i></li>
+    <li>
+      <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
+         class="hover:text-primary-500 dark:hover:text-primary-300 transition-colors">{{ domain.hostname }}</a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page">DKIM Selectors</li>
+    <li><i class="bi bi-chevron-right text-xs"></i></li>
+    <li class="text-light-content-primary dark:text-content-primary font-medium" aria-current="page">DKIM Selectors</li>
   </ol>
 </nav>
 
-<h1 class="h3 mb-3">
-  <i class="bi bi-key me-2"></i>DKIM Selectors
-  <small class="text-muted fs-6">for {{ domain.hostname }}</small>
+<h1 class="text-xl font-bold text-light-content-primary dark:text-content-primary mb-4">
+  <i class="bi bi-key mr-2"></i>DKIM Selectors
+  <span class="text-sm font-normal text-light-content-muted dark:text-content-muted ml-1">for {{ domain.hostname }}</span>
 </h1>
 
 {# ── Add Selector form ── #}
-<div class="card mb-4">
-  <div class="card-header">
-    <i class="bi bi-plus-circle me-1"></i>Add Selector
+<div class="mica-card overflow-hidden mb-4">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-plus-circle mr-1.5"></i>Add Selector
+    </span>
   </div>
-  <div class="card-body">
+  <div class="p-4">
     <form method="post"
           action="{{ url_for('dashboard.domain_selectors', domain_id=domain.id) }}"
-          class="row g-2 align-items-end">
+          class="flex flex-col sm:flex-row items-start sm:items-end gap-3">
       {{ add_form.hidden_tag() }}
-      <div class="col-12 col-md-4">
-        <label for="{{ add_form.selector.id }}" class="form-label mb-1">Selector Name</label>
-        {{ add_form.selector(id=add_form.selector.id) }}
-        {% if add_form.selector.errors %}
-          {% for err in add_form.selector.errors %}
-            <div class="invalid-feedback d-block">{{ err }}</div>
-          {% endfor %}
-        {% endif %}
+      <div class="w-full sm:w-64">
+        <label for="{{ add_form.selector.id }}"
+               class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+          Selector Name
+        </label>
+        {{ add_form.selector(id=add_form.selector.id, class="mica-input" + (" is-invalid" if add_form.selector.errors else "")) }}
+        {% for err in add_form.selector.errors %}
+          <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+        {% endfor %}
       </div>
-      <div class="col-auto">
-        {{ add_form.submit() }}
+      <div>
+        {{ add_form.submit(class="btn-primary") }}
       </div>
     </form>
   </div>
@@ -52,53 +58,55 @@
 
 {# ── Selectors table ── #}
 {% if selectors %}
-<div class="card">
-  <div class="card-header">
-    <i class="bi bi-list-ul me-1"></i>Configured Selectors
-    <span class="badge bg-secondary ms-1">{{ selectors|length }}</span>
+<div class="mica-card overflow-hidden">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-list-ul mr-1.5"></i>Configured Selectors
+    </span>
+    <span class="badge-secondary">{{ selectors|length }}</span>
   </div>
-  <div class="table-responsive">
-    <table class="table table-sm table-hover align-middle mb-0">
-      <thead class="table-dark">
+  <div class="overflow-x-auto">
+    <table class="mica-table">
+      <thead>
         <tr>
           <th>Selector</th>
           <th class="text-center">Status</th>
           <th>Added</th>
-          <th class="text-end">Action</th>
+          <th class="text-right">Action</th>
         </tr>
       </thead>
       <tbody>
         {% for sel in selectors %}
-        <tr class="{% if not sel.is_active %}table-secondary{% endif %}">
+        <tr class="{% if not sel.is_active %}opacity-60{% endif %}">
           <td>
-            <code>{{ sel.selector }}</code>
+            <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ sel.selector }}</code>
           </td>
           <td class="text-center">
             {% if sel.is_active %}
-              <span class="badge bg-success">Active</span>
+              <span class="badge-ok">Active</span>
             {% else %}
-              <span class="badge bg-secondary">Inactive</span>
+              <span class="badge-secondary">Inactive</span>
             {% endif %}
           </td>
-          <td class="text-muted small">
+          <td class="text-light-content-muted dark:text-content-muted text-xs">
             {{ sel.added_at.strftime('%Y-%m-%d') }}
           </td>
-          <td class="text-end">
+          <td class="text-right">
             <form method="post"
                   action="{{ url_for('dashboard.toggle_selector', selector_id=sel.id) }}"
-                  class="d-inline">
+                  class="inline">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
               {% if sel.is_active %}
                 <button type="submit"
-                        class="btn btn-outline-secondary btn-sm"
+                        class="btn-outline btn-sm"
                         title="Disable selector">
-                  <i class="bi bi-toggle-on me-1"></i>Disable
+                  <i class="bi bi-toggle-on"></i>Disable
                 </button>
               {% else %}
                 <button type="submit"
-                        class="btn btn-outline-success btn-sm"
+                        class="btn-success btn-sm"
                         title="Enable selector">
-                  <i class="bi bi-toggle-off me-1"></i>Enable
+                  <i class="bi bi-toggle-off"></i>Enable
                 </button>
               {% endif %}
             </form>
@@ -110,17 +118,17 @@
   </div>
 </div>
 {% else %}
-<div class="alert alert-info">
-  <i class="bi bi-info-circle me-2"></i>
+<div class="rounded-lg border px-4 py-3 text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/30">
+  <i class="bi bi-info-circle mr-2"></i>
   No selectors configured for this domain yet. Add one above.
 </div>
 {% endif %}
 
 {# ── Back link ── #}
-<div class="mt-3">
+<div class="mt-4">
   <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
-     class="btn btn-outline-secondary btn-sm">
-    <i class="bi bi-arrow-left me-1"></i>Back to Domain Detail
+     class="btn-outline btn-sm">
+    <i class="bi bi-arrow-left"></i>Back to Domain Detail
   </a>
 </div>
 

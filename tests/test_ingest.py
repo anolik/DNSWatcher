@@ -1,15 +1,16 @@
 """
 F36 - Unit tests for app/ingest/parser.py
 
-Verifies the email file parser correctly extracts domains, handles
-duplicates, identifies invalid lines, and processes edge cases.
+Verifies the file parser correctly extracts domains from email lists,
+domain lists, or mixed content.  Handles duplicates, identifies invalid
+lines, and processes edge cases.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from app.ingest.parser import parse_email_file
+from app.ingest.parser import parse_email_file, parse_import_file
 
 
 # ---------------------------------------------------------------------------
@@ -253,3 +254,161 @@ def test_windows_line_endings_handled():
 
     assert "first.com" in result["domains"]
     assert "second.com" in result["domains"]
+
+
+# ---------------------------------------------------------------------------
+# Tests - bare domain list parsing
+# ---------------------------------------------------------------------------
+
+
+def test_bare_domain_single():
+    """A file with one bare domain name should be accepted."""
+    result = parse_import_file("example.com")
+
+    assert "example.com" in result["domains"]
+    assert result["invalid_lines"] == []
+
+
+def test_bare_domain_multiple():
+    """Multiple bare domain names (one per line) are all extracted."""
+    content = "example.com\nanother.org\ntest.net"
+    result = parse_import_file(content)
+
+    assert result["domains"] == ["another.org", "example.com", "test.net"]
+    assert result["invalid_lines"] == []
+
+
+def test_bare_domain_deduplication():
+    """Duplicate bare domains are deduplicated."""
+    content = "example.com\nexample.com\nexample.com"
+    result = parse_import_file(content)
+
+    assert result["domains"] == ["example.com"]
+
+
+def test_bare_domain_normalised_to_lowercase():
+    """Bare domains with uppercase letters are lowercased."""
+    content = "EXAMPLE.COM\nAnother.Org"
+    result = parse_import_file(content)
+
+    assert "example.com" in result["domains"]
+    assert "another.org" in result["domains"]
+
+
+def test_bare_domain_with_subdomain():
+    """Bare subdomains like mail.example.com are accepted."""
+    content = "mail.example.com"
+    result = parse_import_file(content)
+
+    assert "mail.example.com" in result["domains"]
+
+
+def test_bare_domain_with_whitespace():
+    """Leading/trailing whitespace around a bare domain is stripped."""
+    content = "   example.com   "
+    result = parse_import_file(content)
+
+    assert "example.com" in result["domains"]
+
+
+def test_bare_domain_invalid_format_rejected():
+    """Lines that are not valid domains and not emails go to invalid_lines."""
+    content = "not-a-domain\n123.456\n@nope"
+    result = parse_import_file(content)
+
+    assert result["domains"] == []
+    assert len(result["invalid_lines"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Tests - CSV/delimited domain lists
+# ---------------------------------------------------------------------------
+
+
+def test_comma_separated_domains():
+    """Comma-separated domains on one line are all extracted."""
+    content = "example.com,another.org,test.net"
+    result = parse_import_file(content)
+
+    assert "example.com" in result["domains"]
+    assert "another.org" in result["domains"]
+    assert "test.net" in result["domains"]
+
+
+def test_semicolon_separated_domains():
+    """Semicolon-separated domains on one line are all extracted."""
+    content = "example.com;another.org"
+    result = parse_import_file(content)
+
+    assert "example.com" in result["domains"]
+    assert "another.org" in result["domains"]
+
+
+def test_tab_separated_domains():
+    """Tab-separated domains on one line are all extracted."""
+    content = "example.com\tanother.org"
+    result = parse_import_file(content)
+
+    assert "example.com" in result["domains"]
+    assert "another.org" in result["domains"]
+
+
+def test_quoted_domains_in_csv():
+    """Domains wrapped in quotes (CSV export) have quotes stripped."""
+    content = '"example.com","another.org"'
+    result = parse_import_file(content)
+
+    assert "example.com" in result["domains"]
+    assert "another.org" in result["domains"]
+
+
+# ---------------------------------------------------------------------------
+# Tests - mixed email and domain content
+# ---------------------------------------------------------------------------
+
+
+def test_mixed_emails_and_domains():
+    """A file mixing emails and bare domains extracts all unique domains."""
+    content = "alice@example.com\nanother.org\nbob@test.net\nmysite.io"
+    result = parse_import_file(content)
+
+    assert "example.com" in result["domains"]
+    assert "another.org" in result["domains"]
+    assert "test.net" in result["domains"]
+    assert "mysite.io" in result["domains"]
+    assert result["invalid_lines"] == []
+
+
+def test_mixed_with_invalid_lines():
+    """Mixed content with some invalid lines separates correctly."""
+    content = "example.com\nnot valid\nalice@test.org\n12345"
+    result = parse_import_file(content)
+
+    assert "example.com" in result["domains"]
+    assert "test.org" in result["domains"]
+    assert "not valid" in result["invalid_lines"]
+    assert "12345" in result["invalid_lines"]
+
+
+# ---------------------------------------------------------------------------
+# Tests - comment lines
+# ---------------------------------------------------------------------------
+
+
+def test_comment_lines_skipped():
+    """Lines starting with # are treated as comments and skipped."""
+    content = "# This is a header\nexample.com\n# Another comment\ntest.org"
+    result = parse_import_file(content)
+
+    assert result["domains"] == ["example.com", "test.org"]
+    assert result["invalid_lines"] == []
+
+
+# ---------------------------------------------------------------------------
+# Tests - backward compatibility alias
+# ---------------------------------------------------------------------------
+
+
+def test_parse_email_file_is_alias():
+    """parse_email_file is an alias for parse_import_file."""
+    assert parse_email_file is parse_import_file

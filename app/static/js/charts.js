@@ -9,17 +9,10 @@
  *
  * Both produce a stacked bar chart with OK (green), Warning (amber),
  * Critical (red) segments. Responsive and mobile-friendly.
+ * Supports dark mode via MICA design system tokens.
  */
 
 /* global Chart */
-
-const STATUS_COLORS = {
-  ok:       { bg: "rgba(25, 135, 84, 0.8)",  border: "rgb(25, 135, 84)" },
-  warning:  { bg: "rgba(253, 126, 20, 0.8)", border: "rgb(253, 126, 20)" },
-  critical: { bg: "rgba(220, 53, 69, 0.8)",  border: "rgb(220, 53, 69)" },
-  pending:  { bg: "rgba(108, 117, 125, 0.5)", border: "rgb(108, 117, 125)" },
-  error:    { bg: "rgba(220, 53, 69, 0.5)",  border: "rgb(220, 53, 69)" },
-};
 
 /**
  * Map a status string to a numeric value for the chart.
@@ -39,7 +32,15 @@ function statusToValue(status) {
  * Get background color for a status value.
  */
 function statusColor(status) {
-  return STATUS_COLORS[status] || STATUS_COLORS.pending;
+  // Fallback for calls outside render functions
+  var fallbackColors = {
+    ok:       { bg: "rgba(34, 197, 94, 0.8)",  border: "#22C55E" },
+    warning:  { bg: "rgba(245, 158, 11, 0.8)", border: "#F59E0B" },
+    critical: { bg: "rgba(239, 68, 68, 0.8)",  border: "#EF4444" },
+    pending:  { bg: "rgba(108, 117, 125, 0.5)", border: "rgb(108, 117, 125)" },
+    error:    { bg: "rgba(239, 68, 68, 0.5)",  border: "#EF4444" },
+  };
+  return fallbackColors[status] || fallbackColors.pending;
 }
 
 /**
@@ -50,23 +51,27 @@ function statusColor(status) {
  * @param {Object[]} data - Array of objects with {overall, spf, dmarc, dkim, reputation}.
  */
 function renderHistoryChart(canvasId, labels, data) {
-  const canvas = document.getElementById(canvasId);
+  var canvas = document.getElementById(canvasId);
   if (!canvas || typeof Chart === "undefined") return;
 
-  // Build stacked bar datasets: each bar has segments for each check type
-  const checkTypes = ["spf", "dmarc", "dkim", "reputation"];
-  const checkColors = {
-    spf:        { ok: "rgba(25,135,84,0.9)",  warn: "rgba(253,126,20,0.9)", crit: "rgba(220,53,69,0.9)", pending: "rgba(108,117,125,0.4)" },
-    dmarc:      { ok: "rgba(25,135,84,0.7)",  warn: "rgba(253,126,20,0.7)", crit: "rgba(220,53,69,0.7)", pending: "rgba(108,117,125,0.3)" },
-    dkim:       { ok: "rgba(25,135,84,0.5)",  warn: "rgba(253,126,20,0.5)", crit: "rgba(220,53,69,0.5)", pending: "rgba(108,117,125,0.2)" },
-    reputation: { ok: "rgba(25,135,84,0.35)", warn: "rgba(253,126,20,0.35)", crit: "rgba(220,53,69,0.35)", pending: "rgba(108,117,125,0.15)" },
+  var isDark = document.documentElement.classList.contains('dark');
+
+  var STATUS_COLORS = {
+    ok:       { bg: isDark ? "rgba(34, 197, 94, 0.8)" : "rgba(34, 197, 94, 0.8)",   border: "#22C55E" },
+    warning:  { bg: isDark ? "rgba(245, 158, 11, 0.8)" : "rgba(245, 158, 11, 0.8)", border: "#F59E0B" },
+    critical: { bg: isDark ? "rgba(239, 68, 68, 0.8)" : "rgba(239, 68, 68, 0.8)",   border: "#EF4444" },
+    pending:  { bg: isDark ? "rgba(141, 137, 151, 0.5)" : "rgba(108, 117, 125, 0.5)", border: isDark ? "#8D8997" : "rgb(108, 117, 125)" },
+    error:    { bg: isDark ? "rgba(239, 68, 68, 0.5)" : "rgba(220, 53, 69, 0.5)",   border: "#EF4444" },
   };
 
+  var textColor = isDark ? '#B2AEBB' : '#4B5563';
+  var gridColor = isDark ? 'rgba(106, 100, 118, 0.2)' : 'rgba(0, 0, 0, 0.1)';
+
   // Simpler approach: one stacked bar per check with overall status coloring
-  const okData = data.map(d => d.overall === "ok" ? 1 : 0);
-  const warnData = data.map(d => d.overall === "warning" ? 1 : 0);
-  const critData = data.map(d => (d.overall === "critical" || d.overall === "error") ? 1 : 0);
-  const pendingData = data.map(d => (d.overall === "pending" || !d.overall) ? 1 : 0);
+  var okData = data.map(function(d) { return d.overall === "ok" ? 1 : 0; });
+  var warnData = data.map(function(d) { return d.overall === "warning" ? 1 : 0; });
+  var critData = data.map(function(d) { return (d.overall === "critical" || d.overall === "error") ? 1 : 0; });
+  var pendingData = data.map(function(d) { return (d.overall === "pending" || !d.overall) ? 1 : 0; });
 
   new Chart(canvas, {
     type: "bar",
@@ -109,7 +114,11 @@ function renderHistoryChart(canvasId, labels, data) {
       plugins: {
         legend: {
           position: "top",
-          labels: { usePointStyle: true, padding: 15 },
+          labels: {
+            usePointStyle: true,
+            padding: 15,
+            color: textColor,
+          },
         },
         tooltip: {
           callbacks: {
@@ -117,8 +126,8 @@ function renderHistoryChart(canvasId, labels, data) {
               return context[0].label;
             },
             afterBody: function(context) {
-              const idx = context[0].dataIndex;
-              const d = data[idx];
+              var idx = context[0].dataIndex;
+              var d = data[idx];
               if (!d) return "";
               return [
                 "SPF: " + (d.spf || "n/a"),
@@ -138,6 +147,10 @@ function renderHistoryChart(canvasId, labels, data) {
             autoSkip: true,
             maxTicksLimit: 15,
             font: { size: 11 },
+            color: textColor,
+          },
+          grid: {
+            color: gridColor,
           },
         },
         y: {
@@ -161,23 +174,36 @@ function renderHistoryChart(canvasId, labels, data) {
  */
 async function renderHistoryChartFromApi(canvasId, domainId, limit) {
   limit = limit || 30;
-  const canvas = document.getElementById(canvasId);
+  var canvas = document.getElementById(canvasId);
   if (!canvas || typeof Chart === "undefined") return;
 
+  var isDark = document.documentElement.classList.contains('dark');
+
+  var STATUS_COLORS = {
+    ok:       { bg: isDark ? "rgba(34, 197, 94, 0.8)" : "rgba(34, 197, 94, 0.8)",   border: "#22C55E" },
+    warning:  { bg: isDark ? "rgba(245, 158, 11, 0.8)" : "rgba(245, 158, 11, 0.8)", border: "#F59E0B" },
+    critical: { bg: isDark ? "rgba(239, 68, 68, 0.8)" : "rgba(239, 68, 68, 0.8)",   border: "#EF4444" },
+    pending:  { bg: isDark ? "rgba(141, 137, 151, 0.5)" : "rgba(108, 117, 125, 0.5)", border: isDark ? "#8D8997" : "rgb(108, 117, 125)" },
+    error:    { bg: isDark ? "rgba(239, 68, 68, 0.5)" : "rgba(220, 53, 69, 0.5)",   border: "#EF4444" },
+  };
+
+  var textColor = isDark ? '#B2AEBB' : '#4B5563';
+  var gridColor = isDark ? 'rgba(106, 100, 118, 0.2)' : 'rgba(0, 0, 0, 0.1)';
+
   try {
-    const response = await fetch(
+    var response = await fetch(
       "/api/v1/domains/" + domainId + "/history?limit=" + limit
     );
     if (!response.ok) return;
-    const json = await response.json();
+    var json = await response.json();
 
-    const labels = json.labels || [];
-    const datasets = json.datasets || {};
+    var apiLabels = json.labels || [];
+    var datasets = json.datasets || {};
 
     new Chart(canvas, {
       type: "bar",
       data: {
-        labels: labels,
+        labels: apiLabels,
         datasets: [
           {
             label: "OK",
@@ -208,7 +234,11 @@ async function renderHistoryChartFromApi(canvasId, domainId, limit) {
         plugins: {
           legend: {
             position: "top",
-            labels: { usePointStyle: true, padding: 15 },
+            labels: {
+              usePointStyle: true,
+              padding: 15,
+              color: textColor,
+            },
           },
           tooltip: {
             callbacks: {
@@ -226,6 +256,10 @@ async function renderHistoryChartFromApi(canvasId, domainId, limit) {
               autoSkip: true,
               maxTicksLimit: 15,
               font: { size: 11 },
+              color: textColor,
+            },
+            grid: {
+              color: gridColor,
             },
           },
           y: {

@@ -49,6 +49,10 @@ def _make_result(
     dkim_records: list | None = None,
     reputation_status: str = "ok",
     reputation_details: dict | None = None,
+    mx_provider: str | None = None,
+    mx_records: list | None = None,
+    registrar: str | None = None,
+    registrar_details: dict | None = None,
     overall_status: str = "ok",
     offset_seconds: int = 0,
 ) -> CheckResult:
@@ -70,6 +74,12 @@ def _make_result(
         reputation_status=reputation_status,
         reputation_details=(
             json.dumps(reputation_details) if reputation_details else None
+        ),
+        mx_provider=mx_provider,
+        mx_records=json.dumps(mx_records) if mx_records else None,
+        registrar=registrar,
+        registrar_details=(
+            json.dumps(registrar_details) if registrar_details else None
         ),
     )
     db.session.add(result)
@@ -531,3 +541,143 @@ def test_detected_changes_are_persisted_after_commit(app):
         ).scalar()
 
     assert count > 0
+
+
+# ---------------------------------------------------------------------------
+# Tests - MX provider change
+# ---------------------------------------------------------------------------
+
+
+def test_mx_provider_change_detected(app):
+    """Changing MX provider should create an 'info' ChangeLog entry."""
+    with app.app_context():
+        from app import db
+
+        domain = _make_domain(db)
+
+        _make_result(
+            db, domain.id,
+            mx_provider="Google Workspace",
+            offset_seconds=0,
+        )
+        new = _make_result(
+            db, domain.id,
+            mx_provider="Microsoft 365",
+            offset_seconds=1,
+        )
+        db.session.flush()
+
+        from app.checker.diff_engine import detect_changes
+
+        changes = detect_changes(domain.id, new)
+        snapshots = _snapshot_changes(changes)
+        db.session.commit()
+
+    mx_changes = [c for c in snapshots if c["check_type"] == "mx"]
+    assert len(mx_changes) == 1
+    assert mx_changes[0]["field_changed"] == "mx_provider"
+    assert mx_changes[0]["severity"] == "info"
+    assert mx_changes[0]["old_value"] == "Google Workspace"
+    assert mx_changes[0]["new_value"] == "Microsoft 365"
+
+
+def test_mx_provider_unchanged_no_changelog(app):
+    """When MX provider does not change, no MX ChangeLog is created."""
+    with app.app_context():
+        from app import db
+
+        domain = _make_domain(db)
+
+        _make_result(db, domain.id, mx_provider="Google Workspace", offset_seconds=0)
+        new = _make_result(db, domain.id, mx_provider="Google Workspace", offset_seconds=1)
+        db.session.flush()
+
+        from app.checker.diff_engine import detect_changes
+
+        changes = detect_changes(domain.id, new)
+        snapshots = _snapshot_changes(changes)
+        db.session.commit()
+
+    mx_changes = [c for c in snapshots if c["check_type"] == "mx"]
+    assert len(mx_changes) == 0
+
+
+def test_mx_provider_from_none_to_value(app):
+    """First MX provider detection (None -> value) should create a change."""
+    with app.app_context():
+        from app import db
+
+        domain = _make_domain(db)
+
+        _make_result(db, domain.id, mx_provider=None, offset_seconds=0)
+        new = _make_result(db, domain.id, mx_provider="OVH", offset_seconds=1)
+        db.session.flush()
+
+        from app.checker.diff_engine import detect_changes
+
+        changes = detect_changes(domain.id, new)
+        snapshots = _snapshot_changes(changes)
+        db.session.commit()
+
+    mx_changes = [c for c in snapshots if c["check_type"] == "mx"]
+    assert len(mx_changes) == 1
+    assert mx_changes[0]["severity"] == "info"
+
+
+# ---------------------------------------------------------------------------
+# Tests - registrar change
+# ---------------------------------------------------------------------------
+
+
+def test_registrar_change_detected(app):
+    """Changing registrar should create an 'info' ChangeLog entry."""
+    with app.app_context():
+        from app import db
+
+        domain = _make_domain(db)
+
+        _make_result(
+            db, domain.id,
+            registrar="GoDaddy.com, LLC",
+            offset_seconds=0,
+        )
+        new = _make_result(
+            db, domain.id,
+            registrar="Namecheap, Inc.",
+            offset_seconds=1,
+        )
+        db.session.flush()
+
+        from app.checker.diff_engine import detect_changes
+
+        changes = detect_changes(domain.id, new)
+        snapshots = _snapshot_changes(changes)
+        db.session.commit()
+
+    reg_changes = [c for c in snapshots if c["check_type"] == "registrar"]
+    assert len(reg_changes) == 1
+    assert reg_changes[0]["field_changed"] == "registrar_name"
+    assert reg_changes[0]["severity"] == "info"
+    assert reg_changes[0]["old_value"] == "GoDaddy.com, LLC"
+    assert reg_changes[0]["new_value"] == "Namecheap, Inc."
+
+
+def test_registrar_unchanged_no_changelog(app):
+    """When registrar does not change, no registrar ChangeLog is created."""
+    with app.app_context():
+        from app import db
+
+        domain = _make_domain(db)
+
+        _make_result(db, domain.id, registrar="GoDaddy.com, LLC", offset_seconds=0)
+        new = _make_result(db, domain.id, registrar="GoDaddy.com, LLC", offset_seconds=1)
+        db.session.flush()
+
+        from app.checker.diff_engine import detect_changes
+
+        changes = detect_changes(domain.id, new)
+        snapshots = _snapshot_changes(changes)
+        db.session.commit()
+
+    reg_changes = [c for c in snapshots if c["check_type"] == "registrar"]
+    assert len(reg_changes) == 0

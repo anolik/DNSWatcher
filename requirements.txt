@@ -21,8 +21,17 @@ cryptography>=42.0.0
 # IP reputation / DNSBL
 pydnsbl>=1.1.7
 
+# WHOIS domain registrar lookup
+python-whois>=0.9.4
+
+# Timezone data (required on Windows; bundled on Linux/macOS)
+tzdata>=2024.1
+
 # WTForms (pulled in by Flask-WTF; listed explicitly for clarity)
 WTForms>=3.1.0
+
+# Production WSGI server
+gunicorn>=22.0.0
 
 # Testing
 pytest>=8.0.0

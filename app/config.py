@@ -20,6 +20,12 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS: bool = False
 
+    # SQLite tuning: WAL mode for concurrent reads during threaded checks,
+    # and a 30-second busy timeout so writers wait instead of failing.
+    SQLALCHEMY_ENGINE_OPTIONS: dict = {
+        "connect_args": {"timeout": 30},
+    }
+
     # Session hardening
     SESSION_COOKIE_HTTPONLY: bool = True
     SESSION_COOKIE_SAMESITE: str = "Lax"

@@ -10,6 +10,7 @@ for a single domain or all active domains. Handles:
 - Persisting CheckResult to the database
 - Updating Domain status fields
 - Measuring execution time
+- Concurrent batch checking via ThreadPoolExecutor
 """
 
 from __future__ import annotations
@@ -17,13 +18,19 @@ from __future__ import annotations
 import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
 from app import db
 from app.checker.anti_flap import apply_flap_logic
+from app.checker.bimi import check_bimi
 from app.checker.dkim import check_dkim
 from app.checker.dmarc import check_dmarc
+from app.checker.geolocation import check_geolocation
+from app.checker.mta_sts import check_mta_sts
+from app.checker.mx import PROVIDER_DKIM_SELECTORS, check_mx
+from app.checker.registrar import check_registrar
 from app.checker.reputation import check_reputation
 from app.checker.spf import check_spf
 from app.models import CheckResult, DkimSelector, DnsSettings, Domain
@@ -61,15 +68,6 @@ def run_domain_check(
     if settings is None:
         settings = DnsSettings()
 
-    # Load active DKIM selectors for this domain
-    active_selectors: list[str] = [
-        s.selector
-        for s in DkimSelector.query.filter_by(
-            domain_id=domain.id,
-            is_active=True,
-        ).all()
-    ]
-
     dns_errors: list[str] = []
     statuses: list[str] = []
 
@@ -85,7 +83,18 @@ def run_domain_check(
     dmarc_status = apply_flap_logic(domain.id, "dmarc", dmarc_status_raw)
     statuses.append(dmarc_status)
 
-    # ---- DKIM check ----
+    # ---- MX check (run BEFORE DKIM to identify provider) ----
+    mx_result = _run_safe_check(
+        "mx",
+        lambda: check_mx(domain.hostname, settings),
+        dns_errors,
+    )
+
+    # ---- Sync DKIM selectors based on MX provider ----
+    mx_provider = mx_result.get("provider") if mx_result else None
+    active_selectors = _sync_dkim_selectors(domain, mx_provider)
+
+    # ---- DKIM check (uses provider-aware selectors) ----
     dkim_result = _run_safe_check(
         "dkim",
         lambda: check_dkim(domain.hostname, active_selectors, settings),
@@ -104,6 +113,36 @@ def run_domain_check(
     rep_status_raw = rep_result.get("status", "error") if rep_result else "error"
     rep_status = apply_flap_logic(domain.id, "reputation", rep_status_raw)
     statuses.append(rep_status)
+
+    # ---- Registrar check (informational, does NOT affect overall status) ----
+    registrar_result = _run_safe_check(
+        "registrar",
+        lambda: check_registrar(domain.hostname),
+        dns_errors,
+    )
+
+    # ---- Geolocation check (informational, depends on MX results) ----
+    geo_result = None
+    if mx_result and mx_result.get("records"):
+        geo_result = _run_safe_check(
+            "geolocation",
+            lambda: check_geolocation(mx_result["records"], settings),
+            dns_errors,
+        )
+
+    # ---- MTA-STS check (informational, does NOT affect overall status) ----
+    mta_sts_result = _run_safe_check(
+        "mta_sts",
+        lambda: check_mta_sts(domain.hostname, settings),
+        dns_errors,
+    )
+
+    # ---- BIMI check (informational, does NOT affect overall status) ----
+    bimi_result = _run_safe_check(
+        "bimi",
+        lambda: check_bimi(domain.hostname, settings),
+        dns_errors,
+    )
 
     # ---- Compute overall status ----
     overall_status = _worst_of_statuses(statuses)
@@ -127,6 +166,18 @@ def run_domain_check(
         dkim_records=_to_json(dkim_result.get("results") if dkim_result else None),
         reputation_status=rep_status,
         reputation_details=_to_json(rep_result),
+        mx_records=_to_json(mx_result.get("records") if mx_result else None),
+        mx_provider=mx_result.get("provider") if mx_result else None,
+        registrar=registrar_result.get("registrar") if registrar_result else None,
+        registrar_details=_to_json(registrar_result),
+        mx_geolocation=_to_json(geo_result.get("servers") if geo_result else None),
+        law25_status=geo_result.get("law25_status") if geo_result else None,
+        mta_sts_status=mta_sts_result.get("status") if mta_sts_result else None,
+        mta_sts_record=mta_sts_result.get("record") if mta_sts_result else None,
+        mta_sts_details=_to_json(mta_sts_result),
+        bimi_status=bimi_result.get("status") if bimi_result else None,
+        bimi_record=bimi_result.get("record") if bimi_result else None,
+        bimi_details=_to_json(bimi_result),
         dns_errors=_to_json(dns_errors) if dns_errors else None,
         execution_time_ms=elapsed_ms,
     )
@@ -161,28 +212,120 @@ def run_domain_check(
 
 
 def run_all_checks(trigger_type: str = "scheduled") -> list[CheckResult]:
-    """Run DNS checks on all active domains.
+    """Run DNS checks on all active domains, optionally in parallel.
+
+    Reads the ``check_concurrency`` setting from DnsSettings to decide how
+    many domains to check simultaneously.  When concurrency is 1, domains
+    are checked sequentially (same behaviour as before).
 
     Args:
-        trigger_type: How the batch was triggered ("scheduled" or "manual").
+        trigger_type: How the batch was triggered (``"scheduled"`` or ``"manual"``).
 
     Returns:
         A list of CheckResult instances for each domain checked.
     """
     active_domains = Domain.query.filter_by(is_active=True).all()
+    total = len(active_domains)
+
+    # Read concurrency from settings (default 5)
+    settings = DnsSettings.query.get(1)
+    max_workers = settings.check_concurrency if settings else 5
+    max_workers = max(1, min(max_workers, 10))  # clamp 1..10
+
+    logger.info(
+        "Starting batch check for %d active domains (trigger=%s, concurrency=%d)",
+        total, trigger_type, max_workers,
+    )
+
+    if max_workers == 1 or total <= 1:
+        # Sequential path (no threading overhead)
+        return _run_all_sequential(active_domains, trigger_type)
+
+    return _run_all_concurrent(active_domains, trigger_type, max_workers)
+
+
+def _run_all_sequential(
+    domains: list[Domain],
+    trigger_type: str,
+) -> list[CheckResult]:
+    """Check domains one at a time."""
     results: list[CheckResult] = []
-
-    logger.info("Starting batch check for %d active domains (trigger=%s)", len(active_domains), trigger_type)
-
-    for domain in active_domains:
+    for domain in domains:
         try:
             result = run_domain_check(domain, trigger_type=trigger_type)
             results.append(result)
         except Exception as exc:
             logger.exception("Batch check failed for domain %s: %s", domain.hostname, exc)
-            # Continue with remaining domains even if one fails
+    logger.info("Batch check complete: %d/%d domains checked", len(results), len(domains))
+    return results
 
-    logger.info("Batch check complete: %d/%d domains checked", len(results), len(active_domains))
+
+def _run_all_concurrent(
+    domains: list[Domain],
+    trigger_type: str,
+    max_workers: int,
+) -> list[CheckResult]:
+    """Check domains in parallel using a thread pool.
+
+    Each worker runs inside its own Flask application context so that
+    database sessions are properly scoped per thread.  SQLite WAL mode
+    and a 30-second busy timeout (configured in config.py / __init__.py)
+    allow concurrent readers with serialised writes.  Workers that hit a
+    transient ``database is locked`` error retry up to 2 times.
+    """
+    import sqlite3
+
+    from flask import current_app
+    from sqlalchemy.exc import OperationalError
+
+    app = current_app._get_current_object()  # real app, not proxy
+    domain_ids = [d.id for d in domains]
+    results: list[CheckResult] = []
+    failed = 0
+
+    def _check_one(domain_id: int) -> CheckResult | None:
+        """Worker function executed in a thread, with retry on DB lock."""
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            with app.app_context():
+                try:
+                    domain = db.session.get(Domain, domain_id)
+                    if domain is None or not domain.is_active:
+                        return None
+                    return run_domain_check(domain, trigger_type=trigger_type)
+                except OperationalError as exc:
+                    # Retry on transient SQLite lock errors
+                    if "database is locked" in str(exc) and attempt < max_retries:
+                        wait = 1.0 * (attempt + 1)
+                        logger.warning(
+                            "Database locked for domain_id %d, retrying in %.0fs (attempt %d/%d)",
+                            domain_id, wait, attempt + 1, max_retries,
+                        )
+                        db.session.rollback()
+                        time.sleep(wait)
+                        continue
+                    logger.exception("Batch check failed for domain_id %d: %s", domain_id, exc)
+                    return None
+                except Exception as exc:
+                    logger.exception("Batch check failed for domain_id %d: %s", domain_id, exc)
+                    return None
+        return None  # all retries exhausted
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_id = {
+            executor.submit(_check_one, did): did for did in domain_ids
+        }
+        for future in as_completed(future_to_id):
+            result = future.result()
+            if result is not None:
+                results.append(result)
+            else:
+                failed += 1
+
+    logger.info(
+        "Batch check complete: %d/%d domains checked (%d failed, concurrency=%d)",
+        len(results), len(domains), failed, max_workers,
+    )
     return results
 
 
@@ -232,6 +375,65 @@ def _worst_of_statuses(statuses: list[str]) -> str:
             worst = status
 
     return worst
+
+
+def _sync_dkim_selectors(domain: Domain, mx_provider: str | None) -> list[str]:
+    """Return the DKIM selectors to check, syncing DB rows when the MX provider is known.
+
+    When the MX provider is recognised and has a known selector list:
+    1. Ensure those selectors exist as active DkimSelector rows for the domain.
+    2. Return the provider-specific selectors for the DKIM check.
+
+    When the provider is unknown, fall back to whatever active selectors are
+    already configured for the domain in the database.
+
+    Args:
+        domain: The Domain being checked.
+        mx_provider: The MX provider name from check_mx(), or None.
+
+    Returns:
+        A list of selector strings to pass to check_dkim().
+    """
+    provider_selectors = (
+        PROVIDER_DKIM_SELECTORS.get(mx_provider) if mx_provider else None
+    )
+
+    if provider_selectors:
+        # Ensure each provider selector exists as an active row
+        existing = {
+            s.selector: s
+            for s in DkimSelector.query.filter_by(domain_id=domain.id).all()
+        }
+
+        for sel_name in provider_selectors:
+            if sel_name in existing:
+                # Re-activate if it was disabled
+                if not existing[sel_name].is_active:
+                    existing[sel_name].is_active = True
+            else:
+                db.session.add(
+                    DkimSelector(domain_id=domain.id, selector=sel_name, is_active=True)
+                )
+
+        db.session.flush()
+
+        logger.info(
+            "DKIM selectors for %s set from MX provider %s: %s",
+            domain.hostname,
+            mx_provider,
+            provider_selectors,
+        )
+        return list(provider_selectors)
+
+    # Fallback: use manually-configured active selectors
+    active_selectors: list[str] = [
+        s.selector
+        for s in DkimSelector.query.filter_by(
+            domain_id=domain.id,
+            is_active=True,
+        ).all()
+    ]
+    return active_selectors
 
 
 def _to_json(data: Any) -> str | None:

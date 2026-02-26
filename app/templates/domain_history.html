@@ -1,103 +1,103 @@
 {% extends "base.html" %}
-{% block title %}History – {{ domain.hostname }} – DNS Watcher{% endblock %}
+{% from "macros/ui.html" import status_badge, severity_badge, pagination %}
+{% block title %}History -- {{ domain.hostname }} -- DNS Watcher{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="flex items-center justify-between mb-4">
   <div>
-    <h2><i class="bi bi-clock-history me-2"></i>{{ domain.hostname }}</h2>
-    <p class="text-muted mb-0">
+    <h2 class="text-xl font-bold text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-clock-history mr-2"></i>{{ domain.hostname }}
+    </h2>
+    <p class="text-sm text-light-content-muted dark:text-content-muted mt-0.5">
       Check history and detected changes
     </p>
   </div>
-  <div class="text-end">
-    <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}" class="btn btn-outline-secondary btn-sm">
-      <i class="bi bi-arrow-left me-1"></i>Back to Detail
+  <div>
+    <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
+       class="btn-outline btn-sm">
+      <i class="bi bi-arrow-left mr-1"></i>Back to Detail
     </a>
   </div>
 </div>
 
-<!-- Status summary -->
-<div class="row g-3 mb-4">
-  <div class="col-md-3">
-    <div class="card border-0 shadow-sm">
-      <div class="card-body text-center">
-        <div class="text-muted small">Current Status</div>
-        {% set s = domain.current_status %}
-        {% if s == 'ok' %}
-          <span class="badge bg-success fs-6 mt-1">OK</span>
-        {% elif s == 'warning' %}
-          <span class="badge bg-warning text-dark fs-6 mt-1">Warning</span>
-        {% elif s == 'critical' %}
-          <span class="badge bg-danger fs-6 mt-1">Critical</span>
+{# Status summary cards #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="mica-card">
+    <div class="p-4 text-center">
+      <div class="text-xs text-light-content-muted dark:text-content-muted mb-1">Current Status</div>
+      {% set s = domain.current_status %}
+      {% if s == 'ok' %}
+        <span class="badge-ok text-sm px-3 py-1">OK</span>
+      {% elif s == 'warning' %}
+        <span class="badge-warning text-sm px-3 py-1">Warning</span>
+      {% elif s == 'critical' %}
+        <span class="badge-critical text-sm px-3 py-1">Critical</span>
+      {% else %}
+        <span class="badge-pending text-sm px-3 py-1">{{ s|title }}</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="mica-card">
+    <div class="p-4 text-center">
+      <div class="text-xs text-light-content-muted dark:text-content-muted mb-1">Checked</div>
+      <div class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+        {% if domain.last_checked_at %}
+          {{ domain.last_checked_at|to_tz }} {{ display_tz }}
         {% else %}
-          <span class="badge bg-secondary fs-6 mt-1">{{ s|title }}</span>
+          Never
         {% endif %}
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card border-0 shadow-sm">
-      <div class="card-body text-center">
-        <div class="text-muted small">Last Checked</div>
-        <div class="fw-semibold mt-1">
-          {% if domain.last_checked_at %}
-            {{ domain.last_checked_at.strftime('%Y-%m-%d %H:%M') }} UTC
-          {% else %}
-            Never
-          {% endif %}
-        </div>
+  <div class="mica-card">
+    <div class="p-4 text-center">
+      <div class="text-xs text-light-content-muted dark:text-content-muted mb-1">Last OK</div>
+      <div class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+        {% if domain.last_ok_at %}
+          {{ domain.last_ok_at|to_tz }} {{ display_tz }}
+        {% else %}
+          Never
+        {% endif %}
       </div>
     </div>
   </div>
-  <div class="col-md-3">
-    <div class="card border-0 shadow-sm">
-      <div class="card-body text-center">
-        <div class="text-muted small">Last OK</div>
-        <div class="fw-semibold mt-1">
-          {% if domain.last_ok_at %}
-            {{ domain.last_ok_at.strftime('%Y-%m-%d %H:%M') }} UTC
-          {% else %}
-            Never
-          {% endif %}
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="col-md-3">
-    <div class="card border-0 shadow-sm">
-      <div class="card-body text-center">
-        <div class="text-muted small">Total Checks</div>
-        <div class="fw-semibold mt-1">{{ results|length }}</div>
-      </div>
+  <div class="mica-card">
+    <div class="p-4 text-center">
+      <div class="text-xs text-light-content-muted dark:text-content-muted mb-1">Total Checks</div>
+      <div class="font-semibold text-sm text-light-content-primary dark:text-content-primary">{{ results|length }}</div>
     </div>
   </div>
 </div>
 
-<!-- Chart -->
-<div class="card shadow-sm mb-4">
-  <div class="card-header">
-    <i class="bi bi-bar-chart me-1"></i>Status Timeline (Last {{ results|length }} Checks)
+{# Chart #}
+<div class="mica-card overflow-hidden mb-6">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-bar-chart mr-1.5"></i>Status Timeline (Last {{ results|length }} Checks)
+    </span>
   </div>
-  <div class="card-body">
+  <div class="p-4">
     {% if results %}
-    <div style="position: relative; height: 300px;">
+    <div class="relative" style="height: 300px;">
       <canvas id="historyChart"></canvas>
     </div>
     {% else %}
-    <p class="text-center text-muted py-4">No check results available yet.</p>
+    <p class="text-center text-light-content-muted dark:text-content-muted py-8">No check results available yet.</p>
     {% endif %}
   </div>
 </div>
 
-<!-- Change log table -->
-<div class="card shadow-sm">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-journal-text me-1"></i>Detected Changes</span>
-    <span class="badge bg-secondary">{{ changes_pagination.total }} total</span>
+{# Change log table #}
+<div class="mica-card overflow-hidden">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-journal-text mr-1.5"></i>Detected Changes
+    </span>
+    <span class="badge-secondary">{{ changes_pagination.total }} total</span>
   </div>
-  <div class="table-responsive">
-    <table class="table table-hover mb-0">
-      <thead class="table-light">
+  <div class="overflow-x-auto">
+    <table class="mica-table">
+      <thead>
         <tr>
           <th>Date</th>
           <th>Type</th>
@@ -111,69 +111,31 @@
         {% if changes %}
           {% for c in changes %}
           <tr>
-            <td class="small text-muted text-nowrap">{{ c.detected_at.strftime('%Y-%m-%d %H:%M') }}</td>
-            <td><code>{{ c.check_type }}</code></td>
+            <td class="text-xs text-light-content-muted dark:text-content-muted whitespace-nowrap">{{ c.detected_at|to_tz }}</td>
+            <td><code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ c.check_type }}</code></td>
             <td>{{ c.field_changed }}</td>
-            <td class="text-truncate" style="max-width: 200px;">
-              <small>{{ c.old_value or '---' }}</small>
+            <td class="truncate max-w-[200px]">
+              <span class="text-xs">{{ c.old_value or '---' }}</span>
             </td>
-            <td class="text-truncate" style="max-width: 200px;">
-              <small>{{ c.new_value or '---' }}</small>
+            <td class="truncate max-w-[200px]">
+              <span class="text-xs">{{ c.new_value or '---' }}</span>
             </td>
             <td>
-              {% if c.severity == 'critical' %}
-                <span class="badge bg-danger">Critical</span>
-              {% elif c.severity == 'warning' %}
-                <span class="badge bg-warning text-dark">Warning</span>
-              {% else %}
-                <span class="badge bg-info text-dark">Info</span>
-              {% endif %}
+              {{ severity_badge(c.severity) }}
             </td>
           </tr>
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="6" class="text-center text-muted py-4">No changes detected yet.</td>
+            <td colspan="6" class="text-center text-light-content-muted dark:text-content-muted py-8">No changes detected yet.</td>
           </tr>
         {% endif %}
       </tbody>
     </table>
   </div>
 
-  <!-- Pagination -->
-  {% if changes_pagination.pages > 1 %}
-  <div class="card-footer">
-    <nav aria-label="Change log pagination">
-      <ul class="pagination pagination-sm justify-content-center mb-0">
-        {% if changes_pagination.has_prev %}
-        <li class="page-item">
-          <a class="page-link" href="?page={{ changes_pagination.prev_num }}">Previous</a>
-        </li>
-        {% else %}
-        <li class="page-item disabled"><span class="page-link">Previous</span></li>
-        {% endif %}
-
-        {% for p in changes_pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-          {% if p %}
-            <li class="page-item {% if p == changes_pagination.page %}active{% endif %}">
-              <a class="page-link" href="?page={{ p }}">{{ p }}</a>
-            </li>
-          {% else %}
-            <li class="page-item disabled"><span class="page-link">...</span></li>
-          {% endif %}
-        {% endfor %}
-
-        {% if changes_pagination.has_next %}
-        <li class="page-item">
-          <a class="page-link" href="?page={{ changes_pagination.next_num }}">Next</a>
-        </li>
-        {% else %}
-        <li class="page-item disabled"><span class="page-link">Next</span></li>
-        {% endif %}
-      </ul>
-    </nav>
-  </div>
-  {% endif %}
+  {# Pagination #}
+  {{ pagination(changes_pagination, 'history.domain_history', {}) }}
 </div>
 {% endblock %}
 
@@ -184,7 +146,7 @@
   // Prepare inline data for the chart (no extra API call needed)
   const chartLabels = [
     {% for r in results %}
-      "{{ r.checked_at.strftime('%m/%d %H:%M') }}"{% if not loop.last %},{% endif %}
+      "{{ r.checked_at|to_tz('%m/%d %H:%M') }}"{% if not loop.last %},{% endif %}
     {% endfor %}
   ];
   const chartData = [

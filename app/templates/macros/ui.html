@@ -1,0 +1,198 @@
+{#
+  MICA UI Macro Library — Tailwind CSS component macros for Jinja2.
+  Import with: {% from "macros/ui.html" import status_badge, severity_badge, card, btn, form_field, table_container, pagination, flash_messages, modal %}
+#}
+
+
+{# ── Status badge (ok / warning / critical / error / info / pending / None) ── #}
+{% macro status_badge(status) %}
+  {% if status == 'ok' %}
+    <span class="badge-ok" title="All checks passed">OK</span>
+  {% elif status == 'warning' %}
+    <span class="badge-warning" title="Minor issues detected">Warning</span>
+  {% elif status == 'critical' %}
+    <span class="badge-critical" title="Immediate attention needed">Critical</span>
+  {% elif status == 'error' %}
+    <span class="badge-critical" title="Check failed">Error</span>
+  {% elif status == 'info' %}
+    <span class="badge-info" title="Informational">Info</span>
+  {% elif status %}
+    <span class="badge-pending" title="Status: {{ status }}">{{ status | title }}</span>
+  {% endif %}
+  {# None / falsy → renders nothing (no badge) #}
+{% endmacro %}
+
+
+{# ── Severity badge (critical / warning / info) ── #}
+{% macro severity_badge(severity) %}
+  {% if severity == 'critical' %}
+    <span class="badge-critical">Critical</span>
+  {% elif severity == 'warning' %}
+    <span class="badge-warning">Warning</span>
+  {% else %}
+    <span class="badge-info">Info</span>
+  {% endif %}
+{% endmacro %}
+
+
+{# ── Card wrapper ── #}
+{% macro card(title="", icon="", badge="", extra_class="") %}
+<div class="mica-card overflow-hidden {{ extra_class }}">
+  {% if title %}
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      {% if icon %}<i class="bi bi-{{ icon }} mr-1.5"></i>{% endif %}{{ title }}
+    </span>
+    {% if badge %}{{ badge }}{% endif %}
+  </div>
+  {% endif %}
+  {{ caller() }}
+</div>
+{% endmacro %}
+
+
+{# ── Button ── #}
+{% macro btn(text, variant="primary", size="", icon="", type="button", extra_class="") %}
+<button type="{{ type }}"
+  class="{{ 'btn-' + variant }} {{ 'btn-' + size if size else '' }} {{ extra_class }}">
+  {% if icon %}<i class="bi bi-{{ icon }}"></i>{% endif %}
+  {{ text }}
+</button>
+{% endmacro %}
+
+
+{# ── Form field with label, error display ── #}
+{% macro form_field(field, label="", extra_class="", help_text="") %}
+<div class="{{ extra_class }}">
+  {% if label %}
+    <label for="{{ field.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+      {{ label }}
+    </label>
+  {% elif field.label %}
+    <label for="{{ field.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+      {{ field.label.text }}
+    </label>
+  {% endif %}
+
+  {{ field(class="mica-input" + (" is-invalid" if field.errors else "")) }}
+
+  {% if help_text %}
+    <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">{{ help_text }}</p>
+  {% endif %}
+
+  {% for error in field.errors %}
+    <p class="mt-1 text-xs text-status-danger">{{ error }}</p>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+
+{# ── Table container (responsive wrapper) ── #}
+{% macro table_container() %}
+<div class="overflow-x-auto">
+  {{ caller() }}
+</div>
+{% endmacro %}
+
+
+{# ── Pagination ── #}
+{% macro pagination(pager, endpoint, extra_params={}) %}
+{% if pager.pages > 1 %}
+<div class="px-4 py-3 border-t border-light-surface-border/20 dark:border-surface-border/10">
+  <nav aria-label="Pagination" class="flex items-center justify-center gap-1">
+    {# Previous #}
+    {% if pager.has_prev %}
+    <a href="?page={{ pager.prev_num }}{% for k, v in extra_params.items() %}&{{ k }}={{ v }}{% endfor %}"
+       class="px-3 py-1.5 text-xs rounded-lg text-light-content-secondary dark:text-content-secondary hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors">
+      Previous
+    </a>
+    {% else %}
+    <span class="px-3 py-1.5 text-xs rounded-lg text-light-content-muted dark:text-content-muted opacity-50">
+      Previous
+    </span>
+    {% endif %}
+
+    {# Page numbers #}
+    {% for p in pager.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+      {% if p %}
+        {% if p == pager.page %}
+        <span class="px-3 py-1.5 text-xs rounded-lg font-semibold bg-primary-500 text-white">{{ p }}</span>
+        {% else %}
+        <a href="?page={{ p }}{% for k, v in extra_params.items() %}&{{ k }}={{ v }}{% endfor %}"
+           class="px-3 py-1.5 text-xs rounded-lg text-light-content-secondary dark:text-content-secondary hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors">
+          {{ p }}
+        </a>
+        {% endif %}
+      {% else %}
+        <span class="px-2 py-1.5 text-xs text-light-content-muted dark:text-content-muted">...</span>
+      {% endif %}
+    {% endfor %}
+
+    {# Next #}
+    {% if pager.has_next %}
+    <a href="?page={{ pager.next_num }}{% for k, v in extra_params.items() %}&{{ k }}={{ v }}{% endfor %}"
+       class="px-3 py-1.5 text-xs rounded-lg text-light-content-secondary dark:text-content-secondary hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors">
+      Next
+    </a>
+    {% else %}
+    <span class="px-3 py-1.5 text-xs rounded-lg text-light-content-muted dark:text-content-muted opacity-50">
+      Next
+    </span>
+    {% endif %}
+  </nav>
+</div>
+{% endif %}
+{% endmacro %}
+
+
+{# ── Flash messages ── #}
+{% macro flash_messages() %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-3 space-y-2">
+    {% for category, message in messages %}
+      {% if category == 'error' %}
+        {% set colors = 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800/30' %}
+      {% elif category == 'success' %}
+        {% set colors = 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 border-green-200 dark:border-green-800/30' %}
+      {% elif category == 'warning' %}
+        {% set colors = 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/30' %}
+      {% elif category == 'info' %}
+        {% set colors = 'bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-800/30' %}
+      {% else %}
+        {% set colors = 'bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700' %}
+      {% endif %}
+      <div class="rounded-lg border px-4 py-3 text-sm flex items-center justify-between {{ colors }}" role="alert">
+        <span>{{ message }}</span>
+        <button type="button" onclick="this.parentElement.remove()"
+                class="ml-4 p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                aria-label="Dismiss">
+          <i class="bi bi-x-lg text-xs"></i>
+        </button>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}
+{% endmacro %}
+
+
+{# ── Modal wrapper ── #}
+{% macro modal(id, title, icon="") %}
+<div id="{{ id }}" class="mica-modal hidden fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="{{ id }}Label">
+  <div class="mica-modal-backdrop absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm"></div>
+  <div class="mica-modal-content relative w-full max-w-md bg-white dark:bg-surface-card rounded-card shadow-ambient-lg border border-light-surface-border/20 dark:border-surface-border/15">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-light-surface-border/20 dark:border-surface-border/10">
+      <h3 id="{{ id }}Label" class="text-base font-semibold text-light-content-primary dark:text-content-primary">
+        {% if icon %}<i class="bi bi-{{ icon }} mr-1.5"></i>{% endif %}{{ title }}
+      </h3>
+      <button type="button" data-modal-close="{{ id }}"
+              class="p-1 rounded-md text-light-content-muted dark:text-content-muted hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors"
+              aria-label="Close">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    {{ caller() }}
+  </div>
+</div>
+{% endmacro %}

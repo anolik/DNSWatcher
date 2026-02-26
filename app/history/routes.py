@@ -46,7 +46,7 @@ def index():
 
     return render_template(
         "changes.html",
-        pagination=pagination,
+        pager=pagination,
         changes=pagination.items,
         severity_filter=severity_filter,
     )

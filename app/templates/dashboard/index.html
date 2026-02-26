@@ -1,42 +1,45 @@
 {% extends "base.html" %}
-{% block title %}Dashboard – DNS Watcher{% endblock %}
+{% from "macros/ui.html" import status_badge %}
+{% block title %}Dashboard -- DNS Watcher{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2><i class="bi bi-speedometer2 me-2"></i>Dashboard</h2>
+<div class="flex items-center justify-between mb-6">
+  <h2 class="text-xl font-bold text-light-content-primary dark:text-content-primary">
+    <i class="bi bi-speedometer2 mr-2"></i>Dashboard
+  </h2>
 </div>
 
-<!-- Summary cards -->
-<div class="row g-3 mb-4">
+{# Summary status cards #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
   {% set card_defs = [
-    ('ok',       'success', 'check-circle',    'OK'),
-    ('warning',  'warning', 'exclamation-triangle', 'Warning'),
-    ('critical', 'danger',  'x-circle',        'Critical'),
-    ('pending',  'secondary','hourglass-split', 'Pending'),
+    ('ok',       'check-circle',         'OK',       'bg-green-50 dark:bg-green-900/20',  'text-status-success'),
+    ('warning',  'exclamation-triangle',  'Warning',  'bg-amber-50 dark:bg-amber-900/20',  'text-status-warning'),
+    ('critical', 'x-circle',             'Critical', 'bg-red-50 dark:bg-red-900/20',      'text-status-danger'),
+    ('pending',  'hourglass-split',      'Pending',  'bg-gray-50 dark:bg-gray-800/30',    'text-light-content-muted dark:text-content-muted'),
   ] %}
-  {% for key, color, icon, label in card_defs %}
-  <div class="col-6 col-md-3">
-    <div class="card text-bg-{{ color }} border-0 shadow-sm">
-      <div class="card-body d-flex justify-content-between align-items-center">
-        <div>
-          <div class="fs-2 fw-bold">{{ status_counts.get(key, 0) }}</div>
-          <div class="small">{{ label }}</div>
-        </div>
-        <i class="bi bi-{{ icon }} fs-1 opacity-50"></i>
+  {% for key, icon, label, bg_color, icon_color in card_defs %}
+  <div class="mica-card {{ bg_color }}">
+    <div class="p-4 flex justify-between items-center">
+      <div>
+        <div class="text-3xl font-bold text-light-content-primary dark:text-content-primary">{{ status_counts.get(key, 0) }}</div>
+        <div class="text-xs text-light-content-muted dark:text-content-muted">{{ label }}</div>
       </div>
+      <i class="bi bi-{{ icon }} text-3xl {{ icon_color }} opacity-50"></i>
     </div>
   </div>
   {% endfor %}
 </div>
 
-<!-- Domain table -->
-<div class="card shadow-sm">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-list-ul me-1"></i>Monitored Domains ({{ domains|length }})</span>
+{# Domain table #}
+<div class="mica-card overflow-hidden">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-list-ul mr-1.5"></i>Monitored Domains ({{ domains|length }})
+    </span>
   </div>
-  <div class="table-responsive">
-    <table class="table table-hover mb-0">
-      <thead class="table-light">
+  <div class="overflow-x-auto">
+    <table class="mica-table">
+      <thead>
         <tr>
           <th>Hostname</th>
           <th>Status</th>
@@ -44,7 +47,7 @@
           <th>DMARC</th>
           <th>DKIM</th>
           <th>Reputation</th>
-          <th>Last Checked</th>
+          <th>Checked</th>
           <th></th>
         </tr>
       </thead>
@@ -52,32 +55,23 @@
         {% if domains %}
           {% for domain in domains %}
           <tr>
-            <td class="fw-semibold">{{ domain.hostname }}</td>
+            <td class="font-semibold">{{ domain.hostname }}</td>
             <td>
-              {% set s = domain.current_status %}
-              {% if s == 'ok' %}
-                <span class="badge bg-success">OK</span>
-              {% elif s == 'warning' %}
-                <span class="badge bg-warning text-dark">Warning</span>
-              {% elif s == 'critical' %}
-                <span class="badge bg-danger">Critical</span>
-              {% else %}
-                <span class="badge bg-secondary">{{ s|title }}</span>
-              {% endif %}
+              {{ status_badge(domain.current_status) }}
             </td>
-            <td><span class="badge bg-secondary">–</span></td>
-            <td><span class="badge bg-secondary">–</span></td>
-            <td><span class="badge bg-secondary">–</span></td>
-            <td><span class="badge bg-secondary">–</span></td>
-            <td class="text-muted small">
+            <td><span class="badge-pending">--</span></td>
+            <td><span class="badge-pending">--</span></td>
+            <td><span class="badge-pending">--</span></td>
+            <td><span class="badge-pending">--</span></td>
+            <td class="text-xs text-light-content-muted dark:text-content-muted whitespace-nowrap">
               {% if domain.last_checked_at %}
-                {{ domain.last_checked_at.strftime('%Y-%m-%d %H:%M') }}
+                {{ domain.last_checked_at|to_tz }}
               {% else %}
                 Never
               {% endif %}
             </td>
             <td>
-              <a href="#" class="btn btn-sm btn-outline-primary">
+              <a href="#" class="btn-ghost p-1.5 rounded-lg inline-flex items-center justify-center text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300">
                 <i class="bi bi-arrow-repeat"></i>
               </a>
             </td>
@@ -85,8 +79,8 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="8" class="text-center text-muted py-4">
-              No domains configured yet. Go to <a href="{{ url_for('settings.index') }}">Settings</a> to add one.
+            <td colspan="8" class="text-center text-light-content-muted dark:text-content-muted py-8">
+              No domains configured yet. Go to <a href="{{ url_for('settings.index') }}" class="text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300">Settings</a> to add one.
             </td>
           </tr>
         {% endif %}

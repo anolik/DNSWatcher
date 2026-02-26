@@ -16,11 +16,14 @@ Security controls (consistent with F33 standards):
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import os
 
 from flask import (
+    Response,
     current_app,
     flash,
     redirect,
@@ -211,8 +214,116 @@ def run_graph_fetch(app) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
+# Analytics helpers
+# ---------------------------------------------------------------------------
+
+
+def _compute_summary_stats(domain_filter: str = "") -> dict:
+    """Compute aggregate summary statistics for DMARC reports.
+
+    Args:
+        domain_filter: Optional policy_domain to filter by.
+
+    Returns:
+        Dict with total_reports, total_messages, pass_count, fail_count,
+        pass_rate, top_failing_domain.
+    """
+    query = db.select(
+        db.func.count(DmarcReport.id).label("total_reports"),
+        db.func.coalesce(db.func.sum(DmarcReport.total_messages), 0).label("total_messages"),
+        db.func.coalesce(db.func.sum(DmarcReport.pass_count), 0).label("pass_count"),
+        db.func.coalesce(db.func.sum(DmarcReport.fail_count), 0).label("fail_count"),
+    )
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+
+    row = db.session.execute(query).one()
+    total_messages = row.total_messages
+    pass_rate = round((row.pass_count / total_messages * 100), 1) if total_messages > 0 else 0.0
+
+    # Top failing domain (highest fail_count sum)
+    top_fail_query = (
+        db.select(
+            DmarcReport.policy_domain,
+            db.func.sum(DmarcReport.fail_count).label("total_fails"),
+        )
+        .group_by(DmarcReport.policy_domain)
+        .order_by(db.func.sum(DmarcReport.fail_count).desc())
+        .limit(1)
+    )
+    if domain_filter:
+        top_fail_query = top_fail_query.where(DmarcReport.policy_domain == domain_filter)
+
+    top_fail_row = db.session.execute(top_fail_query).first()
+    top_failing_domain = top_fail_row.policy_domain if top_fail_row and top_fail_row.total_fails > 0 else None
+
+    return {
+        "total_reports": row.total_reports,
+        "total_messages": total_messages,
+        "pass_count": row.pass_count,
+        "fail_count": row.fail_count,
+        "pass_rate": pass_rate,
+        "top_failing_domain": top_failing_domain,
+    }
+
+
+def _top_failing_ips(domain_filter: str = "", limit: int = 10) -> list[dict]:
+    """Aggregate source IPs with highest fail counts from records_json.
+
+    Args:
+        domain_filter: Optional policy_domain to filter by.
+        limit: Maximum number of IPs to return.
+
+    Returns:
+        List of dicts with source_ip, fail_count, total_count keys,
+        sorted by fail_count descending.
+    """
+    query = db.select(DmarcReport.records_json)
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+
+    rows = db.session.execute(query).scalars().all()
+
+    ip_stats: dict[str, dict] = {}
+    for raw in rows:
+        if not raw:
+            continue
+        try:
+            records = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for rec in records:
+            ip = rec.get("source_ip", "unknown")
+            count = rec.get("count", 0)
+            dkim = rec.get("dkim", "")
+            spf = rec.get("spf", "")
+            is_pass = (dkim == "pass" and spf == "pass")
+
+            if ip not in ip_stats:
+                ip_stats[ip] = {"source_ip": ip, "fail_count": 0, "total_count": 0}
+            ip_stats[ip]["total_count"] += count
+            if not is_pass:
+                ip_stats[ip]["fail_count"] += count
+
+    sorted_ips = sorted(ip_stats.values(), key=lambda x: x["fail_count"], reverse=True)
+    return sorted_ips[:limit]
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+_SORTABLE_COLUMNS: dict[str, any] = {
+    "begin_date": DmarcReport.begin_date,
+    "org_name": DmarcReport.org_name,
+    "policy_domain": DmarcReport.policy_domain,
+    "total_messages": DmarcReport.total_messages,
+    "pass_count": DmarcReport.pass_count,
+    "fail_count": DmarcReport.fail_count,
+    "source": DmarcReport.source,
+    "email_subject": DmarcReport.email_subject,
+}
 
 
 @bp.route("/", methods=["GET"])
@@ -221,14 +332,30 @@ def index():
     """Render the paginated list of ingested DMARC reports.
 
     Supports optional filtering by policy_domain via the ``domain`` query
-    parameter, and standard page-based pagination (20 rows per page).
+    parameter, by org_name via the ``org`` query parameter, column sorting
+    via ``sort`` and ``order`` parameters, and standard page-based
+    pagination (20 rows per page).
     """
     domain_filter: str = request.args.get("domain", "").strip()
+    org_filter: str = request.args.get("org", "").strip()
     page: int = request.args.get("page", 1, type=int)
+    sort_col: str = request.args.get("sort", "begin_date").strip()
+    sort_order: str = request.args.get("order", "desc").strip().lower()
 
-    query = db.select(DmarcReport).order_by(DmarcReport.begin_date.desc())
+    # Validate sort parameters
+    if sort_col not in _SORTABLE_COLUMNS:
+        sort_col = "begin_date"
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc"
+
+    column = _SORTABLE_COLUMNS[sort_col]
+    order_clause = column.asc() if sort_order == "asc" else column.desc()
+
+    query = db.select(DmarcReport).order_by(order_clause)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
+    if org_filter:
+        query = query.where(DmarcReport.org_name == org_filter)
 
     pager = db.paginate(query, page=page, per_page=20, error_out=False)
 
@@ -239,99 +366,113 @@ def index():
         .order_by(DmarcReport.policy_domain)
     ).scalars().all()
 
+    # Distinct org_names for the filter dropdown
+    orgs_result = db.session.execute(
+        db.select(DmarcReport.org_name)
+        .distinct()
+        .order_by(DmarcReport.org_name)
+    ).scalars().all()
+
+    # Analytics: summary stats and top failing IPs
+    summary_stats = _compute_summary_stats(domain_filter)
+    top_ips = _top_failing_ips(domain_filter)
+
     return render_template(
         "dmarc_reports/index.html",
         pager=pager,
         domains=domains_result,
         domain_filter=domain_filter,
+        org_filter=org_filter,
+        orgs=orgs_result,
+        sort_col=sort_col,
+        sort_order=sort_order,
+        summary_stats=summary_stats,
+        top_ips=top_ips,
     )
 
 
 @bp.route("/upload", methods=["POST"])
 @login_required
 def upload():
-    """Accept a manual DMARC report file upload and ingest it.
+    """Accept one or more DMARC report file uploads and ingest them.
 
-    Validates extension (.zip, .gz, .xml) and size (<= 1 MiB) before
-    attempting to parse and store the report.  The uploaded filename is
-    used only for extension detection; it is never treated as a path.
+    Validates extension (.zip, .gz, .xml) and size (<= 1 MiB) for each file
+    before attempting to parse and store the report.
     """
-    uploaded_file = request.files.get("dmarc_file")
+    uploaded_files = request.files.getlist("dmarc_file")
 
-    if not uploaded_file or not uploaded_file.filename:
-        flash("No file selected. Please choose a file to upload.", "warning")
+    if not uploaded_files or all(not f.filename for f in uploaded_files):
+        flash("No file selected. Please choose one or more files to upload.", "warning")
         return redirect(url_for("dmarc_reports.index"))
 
-    # ------------------------------------------------------------------
-    # Security: validate file extension
-    # Use os.path.splitext on the lowercased original name only.
-    # The filename is never used as a filesystem path.
-    # ------------------------------------------------------------------
-    original_name: str = uploaded_file.filename
-    _, ext = os.path.splitext(original_name.lower())
+    imported: int = 0
+    duplicates: int = 0
+    errors: int = 0
+    skipped: int = 0
 
-    if ext not in _ALLOWED_EXTENSIONS:
-        logger.warning(
-            "upload: rejected disallowed extension ext=%r filename=%r",
-            ext,
-            original_name,
-        )
-        flash(
-            "Invalid file type. Only .zip, .gz, and .xml files are accepted.",
-            "danger",
-        )
-        return redirect(url_for("dmarc_reports.index"))
+    for uploaded_file in uploaded_files:
+        if not uploaded_file or not uploaded_file.filename:
+            continue
 
-    # ------------------------------------------------------------------
-    # Security: enforce 1 MiB size limit.
-    # Read one byte beyond the limit to detect oversized uploads without
-    # buffering the entire content first.
-    # ------------------------------------------------------------------
-    try:
-        raw_bytes: bytes = uploaded_file.read(_MAX_UPLOAD_BYTES + 1)
-    except Exception:
-        flash("Could not read the uploaded file.", "danger")
-        return redirect(url_for("dmarc_reports.index"))
+        original_name: str = uploaded_file.filename
+        _, ext = os.path.splitext(original_name.lower())
 
-    if len(raw_bytes) > _MAX_UPLOAD_BYTES:
-        logger.warning(
-            "upload: rejected oversized file filename=%r size>%d",
-            original_name,
-            _MAX_UPLOAD_BYTES,
-        )
-        flash("File is too large. Maximum allowed size is 1 MiB.", "danger")
-        return redirect(url_for("dmarc_reports.index"))
+        # Validate extension
+        if ext not in _ALLOWED_EXTENSIONS:
+            logger.warning(
+                "upload: rejected disallowed extension ext=%r filename=%r",
+                ext,
+                original_name,
+            )
+            skipped += 1
+            continue
 
-    # ------------------------------------------------------------------
-    # Parse and ingest
-    # ------------------------------------------------------------------
-    parsed = parse_dmarc_attachment(original_name, raw_bytes)
-    if parsed is None:
-        flash(
-            "The file could not be parsed as a valid DMARC aggregate report.",
-            "danger",
-        )
-        return redirect(url_for("dmarc_reports.index"))
+        # Enforce size limit
+        try:
+            raw_bytes: bytes = uploaded_file.read(_MAX_UPLOAD_BYTES + 1)
+        except Exception:
+            errors += 1
+            continue
 
-    ok, reason = _ingest_parsed_report(parsed, "manual")
+        if len(raw_bytes) > _MAX_UPLOAD_BYTES:
+            logger.warning(
+                "upload: rejected oversized file filename=%r size>%d",
+                original_name,
+                _MAX_UPLOAD_BYTES,
+            )
+            skipped += 1
+            continue
 
-    if ok:
-        flash(
-            f"Report ingested: {parsed.get('report_id', '(unknown)')} "
-            f"from {parsed.get('org_name', '(unknown)')} "
-            f"for {parsed.get('policy_domain', '(unknown)')}.",
-            "success",
-        )
-    elif reason == "duplicate":
-        flash(
-            "This report has already been ingested (duplicate report_id / org_name).",
-            "warning",
-        )
+        # Parse and ingest
+        parsed = parse_dmarc_attachment(original_name, raw_bytes)
+        if parsed is None:
+            errors += 1
+            continue
+
+        ok, reason = _ingest_parsed_report(parsed, "manual")
+        if ok:
+            imported += 1
+        elif reason == "duplicate":
+            duplicates += 1
+        else:
+            errors += 1
+
+    # Flash summary
+    parts: list[str] = []
+    if imported:
+        parts.append(f"{imported} report(s) imported")
+    if duplicates:
+        parts.append(f"{duplicates} duplicate(s) skipped")
+    if skipped:
+        parts.append(f"{skipped} file(s) rejected (invalid type or too large)")
+    if errors:
+        parts.append(f"{errors} file(s) failed to parse")
+
+    if parts:
+        category = "success" if imported > 0 else ("warning" if duplicates > 0 else "danger")
+        flash("Upload complete: " + ", ".join(parts) + ".", category)
     else:
-        flash(
-            "A database error occurred while saving the report. Please try again.",
-            "danger",
-        )
+        flash("No valid files were processed.", "warning")
 
     return redirect(url_for("dmarc_reports.index"))
 
@@ -379,4 +520,77 @@ def detail(id: int):
         "dmarc_reports/detail.html",
         report=report,
         records=records,
+    )
+
+
+@bp.route("/export", methods=["GET"])
+@login_required
+def export_csv():
+    """Export filtered DMARC reports as a CSV download.
+
+    Respects the same domain and org query parameters as the index view.
+    Returns all matching reports (no pagination) as a text/csv response.
+    """
+    domain_filter: str = request.args.get("domain", "").strip()
+    org_filter: str = request.args.get("org", "").strip()
+    sort_col: str = request.args.get("sort", "begin_date").strip()
+    sort_order: str = request.args.get("order", "desc").strip().lower()
+
+    if sort_col not in _SORTABLE_COLUMNS:
+        sort_col = "begin_date"
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc"
+
+    column = _SORTABLE_COLUMNS[sort_col]
+    order_clause = column.asc() if sort_order == "asc" else column.desc()
+
+    query = db.select(DmarcReport).order_by(order_clause)
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+    if org_filter:
+        query = query.where(DmarcReport.org_name == org_filter)
+
+    reports = db.session.execute(query).scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header row
+    writer.writerow([
+        "Report ID",
+        "Org Name",
+        "Policy Domain",
+        "Begin Date",
+        "End Date",
+        "Total Messages",
+        "Pass",
+        "Fail",
+        "Source",
+        "Email Subject",
+    ])
+
+    # Data rows
+    for report in reports:
+        writer.writerow([
+            report.report_id,
+            report.org_name,
+            report.policy_domain,
+            report.begin_date.strftime("%Y-%m-%d") if report.begin_date else "",
+            report.end_date.strftime("%Y-%m-%d") if report.end_date else "",
+            report.total_messages,
+            report.pass_count,
+            report.fail_count,
+            report.source,
+            report.email_subject or "",
+        ])
+
+    csv_content = output.getvalue()
+    output.close()
+
+    return Response(
+        csv_content,
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=dmarc_reports.csv",
+        },
     )

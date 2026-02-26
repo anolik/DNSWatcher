@@ -16,7 +16,7 @@ from flask_login import current_user, login_required
 
 from app import db
 from app.api import bp
-from app.models import CheckResult, Domain
+from app.models import CheckResult, DmarcReport, Domain
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +170,10 @@ def domain_status(domain_id: int):
             "dmarc_status": latest_result.dmarc_status if latest_result else None,
             "dkim_status": latest_result.dkim_status if latest_result else None,
             "reputation_status": latest_result.reputation_status if latest_result else None,
+            "mx_provider": latest_result.mx_provider if latest_result else None,
+            "registrar": latest_result.registrar if latest_result else None,
+            "law25_status": latest_result.law25_status if latest_result else None,
+            "mx_geolocation": latest_result.get_mx_geolocation() if latest_result else [],
             "last_checked": domain.last_checked_at.isoformat() if domain.last_checked_at else None,
             "last_ok": domain.last_ok_at.isoformat() if domain.last_ok_at else None,
         }
@@ -214,3 +218,40 @@ def dashboard_summary():
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     )
+
+
+@bp.route("/dmarc-reports/trends")
+@_auth_required
+def dmarc_trends():
+    """Return daily pass/fail aggregates for DMARC reports trend chart.
+
+    Accepts optional ``domain`` query parameter to filter by policy_domain.
+    Returns at most 90 days of data, sorted chronologically.
+    """
+    domain_filter: str = request.args.get("domain", "").strip()
+
+    query = (
+        db.select(
+            db.func.date(DmarcReport.begin_date).label("day"),
+            db.func.sum(DmarcReport.pass_count).label("pass_total"),
+            db.func.sum(DmarcReport.fail_count).label("fail_total"),
+        )
+        .group_by(db.func.date(DmarcReport.begin_date))
+        .order_by(db.func.date(DmarcReport.begin_date).asc())
+    )
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+
+    # Limit to last 90 days
+    rows = db.session.execute(query).all()
+    rows = rows[-90:] if len(rows) > 90 else rows
+
+    labels = []
+    pass_data = []
+    fail_data = []
+    for row in rows:
+        labels.append(str(row.day))
+        pass_data.append(int(row.pass_total or 0))
+        fail_data.append(int(row.fail_total or 0))
+
+    return jsonify({"labels": labels, "pass": pass_data, "fail": fail_data})

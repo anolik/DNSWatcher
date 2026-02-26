@@ -1,0 +1,10 @@
+# Nixpacks configuration for Railway deployment
+# This project needs both Python (Flask backend) and Node (Tailwind/Vite build)
+
+providers = ["python", "node"]
+
+[phases.setup]
+nixPkgs = ["python312", "gcc"]
+
+[start]
+cmd = "mkdir -p instance && python init_db.py && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120"

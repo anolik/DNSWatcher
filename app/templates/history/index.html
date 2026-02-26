@@ -1,16 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Change Log – DNS Watcher{% endblock %}
+{% from "macros/ui.html" import severity_badge %}
+{% block title %}Change Log -- DNS Watcher{% endblock %}
 
 {% block content %}
-<h2 class="mb-4"><i class="bi bi-clock-history me-2"></i>Change Log</h2>
+<div class="flex items-center justify-between mb-6">
+  <h2 class="text-xl font-bold text-light-content-primary dark:text-content-primary">
+    <i class="bi bi-clock-history mr-2"></i>Change Log
+  </h2>
+</div>
 
-<div class="card shadow-sm">
-  <div class="card-header">
-    Recent DNS record changes across all monitored domains
+<div class="mica-card overflow-hidden">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      Recent DNS record changes across all monitored domains
+    </span>
   </div>
-  <div class="table-responsive">
-    <table class="table table-hover mb-0">
-      <thead class="table-light">
+  <div class="overflow-x-auto">
+    <table class="mica-table">
+      <thead>
         <tr>
           <th>Detected</th>
           <th>Domain</th>
@@ -25,30 +32,24 @@
         {% if changes %}
           {% for c in changes %}
           <tr>
-            <td class="small text-muted">{{ c.detected_at.strftime('%Y-%m-%d %H:%M') }}</td>
-            <td>{{ c.domain.hostname if c.domain else '—' }}</td>
-            <td><code>{{ c.check_type }}</code></td>
+            <td class="text-xs text-light-content-muted dark:text-content-muted whitespace-nowrap">{{ c.detected_at|to_tz }}</td>
+            <td>{{ c.domain.hostname if c.domain else '---' }}</td>
+            <td><code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ c.check_type }}</code></td>
             <td>{{ c.field_changed }}</td>
-            <td class="text-truncate" style="max-width:200px;">
-              <small>{{ c.old_value or '—' }}</small>
+            <td class="truncate max-w-[200px]">
+              <span class="text-xs">{{ c.old_value or '---' }}</span>
             </td>
-            <td class="text-truncate" style="max-width:200px;">
-              <small>{{ c.new_value or '—' }}</small>
+            <td class="truncate max-w-[200px]">
+              <span class="text-xs">{{ c.new_value or '---' }}</span>
             </td>
             <td>
-              {% if c.severity == 'critical' %}
-                <span class="badge bg-danger">Critical</span>
-              {% elif c.severity == 'warning' %}
-                <span class="badge bg-warning text-dark">Warning</span>
-              {% else %}
-                <span class="badge bg-info text-dark">Info</span>
-              {% endif %}
+              {{ severity_badge(c.severity) }}
             </td>
           </tr>
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="7" class="text-center text-muted py-4">No changes recorded yet.</td>
+            <td colspan="7" class="text-center text-light-content-muted dark:text-content-muted py-8">No changes recorded yet.</td>
           </tr>
         {% endif %}
       </tbody>

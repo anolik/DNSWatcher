@@ -1,197 +1,338 @@
 {% extends "base.html" %}
+{% from "macros/ui.html" import status_badge %}
 
 {% block title %}Dashboard - SPF/DMARC/DKIM Watcher{% endblock %}
 
 {% block content %}
 
-{# ── Macro: render a coloured status badge ── #}
-{% macro status_badge(status) %}
-  {% if status == 'ok' %}
-    <span class="badge bg-success">OK</span>
-  {% elif status == 'warning' %}
-    <span class="badge bg-warning text-dark">Warning</span>
-  {% elif status == 'critical' %}
-    <span class="badge bg-danger">Critical</span>
-  {% else %}
-    <span class="badge bg-secondary">Pending</span>
-  {% endif %}
-{% endmacro %}
-
 {# ── Page header ── #}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h1 class="h3 mb-0">
-    <i class="bi bi-speedometer2 me-2"></i>Dashboard
+<div class="flex items-center justify-between mb-4">
+  <h1 class="text-xl font-bold text-light-content-primary dark:text-content-primary">
+    <i class="bi bi-speedometer2 mr-2"></i>Dashboard
   </h1>
 
-  {# Check All button #}
-  <form method="post" action="{{ url_for('dashboard.check_all_domains') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-    <button type="submit" class="btn btn-outline-primary btn-sm">
-      <i class="bi bi-arrow-repeat me-1"></i>Check All
+  <div class="flex items-center gap-2">
+    {# Add Domain button (opens modal) #}
+    <button type="button" class="btn-success btn-sm" data-modal-open="addDomainModal">
+      <i class="bi bi-plus-lg"></i> Add
     </button>
-  </form>
-</div>
-
-{# ── Summary bar ── #}
-<div class="alert alert-light border mb-3 py-2">
-  <strong>{{ domains|length }} domain(s):</strong>
-  <span class="ms-2">
-    <span class="badge bg-success">{{ status_counts.ok }}</span> OK
-  </span>
-  <span class="ms-2">
-    <span class="badge bg-warning text-dark">{{ status_counts.warning }}</span> Warning
-  </span>
-  <span class="ms-2">
-    <span class="badge bg-danger">{{ status_counts.critical }}</span> Critical
-  </span>
-  <span class="ms-2">
-    <span class="badge bg-secondary">{{ status_counts.pending }}</span> Pending
-  </span>
-</div>
-
-{# ── Add Domain form ── #}
-<div class="card mb-4">
-  <div class="card-header">
-    <i class="bi bi-plus-circle me-1"></i>Add Domain
-  </div>
-  <div class="card-body">
-    <form method="post" action="{{ url_for('dashboard.add_domain') }}" class="row g-2 align-items-end">
-      {{ add_form.hidden_tag() }}
-      <div class="col-12 col-md-6 col-lg-4">
-        <label for="{{ add_form.hostname.id }}" class="form-label mb-1">Hostname</label>
-        {{ add_form.hostname(id=add_form.hostname.id) }}
-        {% if add_form.hostname.errors %}
-          {% for err in add_form.hostname.errors %}
-            <div class="invalid-feedback d-block">{{ err }}</div>
-          {% endfor %}
-        {% endif %}
-      </div>
-      <div class="col-auto">
-        {{ add_form.submit() }}
-      </div>
+    {# Check All button (1C: spinner on submit) #}
+    <form method="post" action="{{ url_for('dashboard.check_all_domains') }}" id="checkAllForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="btn-outline btn-sm" id="checkAllBtn">
+        <i class="bi bi-arrow-repeat"></i> Check All
+      </button>
     </form>
   </div>
 </div>
 
+{# ── Summary bar ── #}
+<div class="mica-card p-3 mb-4 flex flex-wrap items-center gap-3 text-sm">
+  <strong class="text-light-content-primary dark:text-content-primary">{{ domains|length }} domain(s):</strong>
+  <span class="flex items-center gap-1">
+    <span class="badge-ok">{{ status_counts.ok }}</span> OK
+  </span>
+  <span class="flex items-center gap-1">
+    <span class="badge-warning">{{ status_counts.warning }}</span> Warning
+  </span>
+  <span class="flex items-center gap-1">
+    <span class="badge-critical">{{ status_counts.critical }}</span> Critical
+  </span>
+  <span class="flex items-center gap-1">
+    <span class="badge-pending">{{ status_counts.pending }}</span> Pending
+  </span>
+</div>
+
 {# ── Domains table ── #}
 {% if domains %}
-<div class="card">
-  <div class="card-header">
-    <i class="bi bi-list-check me-1"></i>Monitored Domains
+<div class="mica-card overflow-hidden">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between flex-wrap gap-2">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-list-check mr-1"></i>Monitored Domains
+    </span>
+    <button type="button" class="btn-outline btn-sm" id="clear-filters" style="display:none">
+      <i class="bi bi-x-circle"></i> Clear filters
+    </button>
   </div>
-  <div class="table-responsive">
-    <table class="table table-hover table-sm mb-0 align-middle">
-      <thead class="table-dark">
+
+  <div class="overflow-x-auto">
+    <table class="mica-table" id="domains-table">
+      <thead>
         <tr>
-          <th>Hostname</th>
-          <th class="text-center">SPF</th>
-          <th class="text-center">DMARC</th>
-          <th class="text-center">DKIM</th>
-          <th class="text-center">Reputation</th>
-          <th class="text-center">Overall</th>
-          <th>Last Checked</th>
-          <th class="text-end">Actions</th>
+          <th data-sort="text" role="button" class="sortable max-w-[10rem]">Hostname <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="status" role="button" class="sortable text-center">SPF <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="status" role="button" class="sortable text-center">DMARC <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="status" role="button" class="sortable text-center">DKIM <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="status" role="button" class="sortable text-center">Rep <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="text" role="button" class="sortable col-narrow">Provider <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="text" role="button" class="sortable col-narrow hidden md:table-cell">Register <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="text" role="button" class="sortable hidden md:table-cell">Country <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="date" role="button" class="sortable col-narrow">Expires <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="date" role="button" class="sortable hidden md:table-cell">Checked <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="text" role="button" class="sortable text-center whitespace-nowrap hidden md:table-cell" title="Managed By MICA">Man <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th class="text-right">Actions</th>
+        </tr>
+        {# ── Per-column filter row ── #}
+        <tr class="filter-row">
+          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="0" placeholder="Filter..." autocomplete="off" /></th>
+          <th><select class="mica-select text-xs py-1 px-2 col-filter" data-col="1"><option value="">All</option><option value="ok">OK</option><option value="warning">Warning</option><option value="critical">Critical</option><option value="pending">Pending</option></select></th>
+          <th><select class="mica-select text-xs py-1 px-2 col-filter" data-col="2"><option value="">All</option><option value="ok">OK</option><option value="warning">Warning</option><option value="critical">Critical</option><option value="pending">Pending</option></select></th>
+          <th><select class="mica-select text-xs py-1 px-2 col-filter" data-col="3"><option value="">All</option><option value="ok">OK</option><option value="warning">Warning</option><option value="critical">Critical</option><option value="pending">Pending</option></select></th>
+          <th><select class="mica-select text-xs py-1 px-2 col-filter" data-col="4"><option value="">All</option><option value="ok">OK</option><option value="warning">Warning</option><option value="critical">Critical</option><option value="pending">Pending</option></select></th>
+          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="5" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="6" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="7" placeholder="Filter..." autocomplete="off" /></th>
+          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="8" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="9" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><select class="mica-select text-xs py-1 px-2 col-filter" data-col="10"><option value="">All</option><option value="yes">Yes</option><option value="no">No</option></select></th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for domain in domains %}
-        <tr>
-          <td>
+        {% set latest = domain.check_results.first() %}
+        <tr data-status="{{ domain.current_status or 'pending' }}">
+          <td class="max-w-[10rem] truncate" data-value="{{ domain.hostname }}" title="{{ domain.hostname }}">
             <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
-               class="fw-semibold text-decoration-none">
+               class="font-semibold text-primary-500 dark:text-primary-300 hover:underline">
               {{ domain.hostname }}
             </a>
           </td>
 
           {# Individual sub-statuses from latest check result #}
-          {% set latest = domain.check_results.first() %}
-          <td class="text-center">
+          <td class="text-center" data-value="{{ latest.spf_status if latest else 'pending' }}">
             {{ status_badge(latest.spf_status if latest else None) }}
           </td>
-          <td class="text-center">
+          <td class="text-center" data-value="{{ latest.dmarc_status if latest else 'pending' }}">
             {{ status_badge(latest.dmarc_status if latest else None) }}
           </td>
-          <td class="text-center">
+          <td class="text-center" data-value="{{ latest.dkim_status if latest else 'pending' }}">
             {{ status_badge(latest.dkim_status if latest else None) }}
           </td>
-          <td class="text-center">
+          <td class="text-center" data-value="{{ latest.reputation_status if latest else 'pending' }}">
             {{ status_badge(latest.reputation_status if latest else None) }}
           </td>
-          <td class="text-center">
-            {{ status_badge(domain.current_status) }}
+          <td class="text-xs text-light-content-muted dark:text-content-muted truncate col-narrow" data-value="{{ latest.mx_provider|lower if latest and latest.mx_provider else '' }}"
+              {% if latest and latest.mx_provider %}title="{{ latest.mx_provider }}"{% endif %}>
+            {% if latest and latest.mx_provider %}
+              <i class="bi bi-envelope mr-1"></i>{{ latest.mx_provider }}
+            {% else %}
+              -
+            {% endif %}
           </td>
-
-          <td class="text-muted small">
+          <td class="text-xs text-light-content-muted dark:text-content-muted truncate col-narrow hidden md:table-cell" data-value="{{ latest.registrar|lower if latest and latest.registrar else '' }}"
+              {% if latest and latest.registrar %}title="{{ latest.registrar }}"{% endif %}>
+            {% if latest and latest.registrar %}
+              <i class="bi bi-building mr-1"></i>{{ latest.registrar }}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td class="text-xs hidden md:table-cell"
+              data-value="{% if latest %}{% set geo = latest.get_mx_geolocation() %}{% if geo %}{% for srv in geo %}{{ srv.get('country_name', '') }} {% endfor %}{% endif %}{% endif %}">
+            {% if latest %}
+              {% set geo = latest.get_mx_geolocation() %}
+              {% if geo %}
+                {% set countries = [] %}
+                {% for srv in geo %}
+                  {% if srv.get('country_name') and srv.get('country_name') not in countries %}
+                    {% if countries.append(srv.get('country_name')) %}{% endif %}
+                  {% endif %}
+                {% endfor %}
+                {% if countries %}
+                  {% for c in countries %}
+                    <span class="{% if c == 'Canada' %}badge-ok{% else %}badge-warning{% endif %} mr-1">
+                      <i class="bi bi-geo-alt mr-0.5"></i>{{ c }}
+                    </span>
+                  {% endfor %}
+                {% else %}
+                  <span class="text-light-content-muted dark:text-content-muted">-</span>
+                {% endif %}
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted">-</span>
+              {% endif %}
+            {% else %}
+              <span class="text-light-content-muted dark:text-content-muted">-</span>
+            {% endif %}
+          </td>
+          <td class="text-xs whitespace-nowrap col-narrow"
+              data-value="{% if latest %}{% set reg_details = latest.get_registrar_details() %}{% set exp_date = reg_details.get('expiration_date', '') if reg_details else '' %}{{ exp_date[:10] if exp_date else '' }}{% endif %}">
+            {% if latest %}
+              {% set reg_details = latest.get_registrar_details() %}
+              {% set exp_date = reg_details.get('expiration_date', '') if reg_details else '' %}
+              {% if exp_date %}
+                {% set exp_short = exp_date[:10] %}
+                {% if exp_short < today_str %}
+                  <span class="text-status-danger font-bold" title="Domain expired!">
+                    <i class="bi bi-exclamation-triangle-fill mr-1"></i>{{ exp_short }}
+                  </span>
+                {% elif exp_short <= warn30_str %}
+                  <span class="text-status-warning font-bold" title="Expires within 30 days">
+                    <i class="bi bi-exclamation-circle mr-1"></i>{{ exp_short }}
+                  </span>
+                {% elif exp_short <= warn90_str %}
+                  <span class="text-blue-500 dark:text-blue-400" title="Expires within 90 days">
+                    <i class="bi bi-clock mr-1"></i>{{ exp_short }}
+                  </span>
+                {% else %}
+                  <span class="text-light-content-muted dark:text-content-muted">{{ exp_short }}</span>
+                {% endif %}
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted">-</span>
+              {% endif %}
+            {% else %}
+              <span class="text-light-content-muted dark:text-content-muted">-</span>
+            {% endif %}
+          </td>
+          <td class="text-light-content-muted dark:text-content-muted text-xs hidden md:table-cell" data-value="{{ domain.last_checked_at.strftime('%Y-%m-%d %H:%M') if domain.last_checked_at else '' }}">
             {% if domain.last_checked_at %}
-              {{ domain.last_checked_at.strftime('%Y-%m-%d %H:%M') }} UTC
+              <span title="{{ domain.last_checked_at|to_tz }}">{{ domain.last_checked_at|timeago }}</span>
             {% else %}
               <em>Never</em>
             {% endif %}
           </td>
 
-          <td class="text-end">
-            {# Manual check #}
-            <form method="post"
-                  action="{{ url_for('dashboard.check_domain', domain_id=domain.id) }}"
-                  class="d-inline">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-              <button type="submit"
-                      class="btn btn-outline-secondary btn-sm"
-                      title="Run check now">
-                <i class="bi bi-arrow-repeat"></i>
+          {% set is_managed = domain.hostname|lower in managed_set %}
+          <td class="text-center hidden md:table-cell" data-value="{{ 'yes' if is_managed else 'no' }}">
+            {% if is_managed %}
+              <span class="badge-ok">YES</span>
+            {% else %}
+              <span class="badge-pending">NO</span>
+            {% endif %}
+          </td>
+
+          <td class="text-right">
+            <div class="relative">
+              <button data-dropdown-toggle="actions-{{ domain.id }}"
+                      class="btn-outline btn-sm" type="button" title="Actions"
+                      aria-expanded="false">
+                <i class="bi bi-three-dots-vertical"></i>
               </button>
-            </form>
-
-            {# Detail link #}
-            <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
-               class="btn btn-outline-info btn-sm"
-               title="View details">
-              <i class="bi bi-eye"></i>
-            </a>
-
-            {# History link #}
-            <a href="{{ url_for('history.domain_history', domain_id=domain.id) }}"
-               class="btn btn-outline-warning btn-sm"
-               title="View history">
-              <i class="bi bi-clock-history"></i>
-            </a>
-
-            {# Selectors link #}
-            <a href="{{ url_for('dashboard.domain_selectors', domain_id=domain.id) }}"
-               class="btn btn-outline-secondary btn-sm"
-               title="Manage DKIM selectors">
-              <i class="bi bi-key"></i>
-            </a>
-
-            {# Delete #}
-            <form method="post"
-                  action="{{ url_for('dashboard.delete_domain', domain_id=domain.id) }}"
-                  class="d-inline"
-                  onsubmit="return confirm('Remove {{ domain.hostname }} from monitoring?');">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-              <button type="submit"
-                      class="btn btn-outline-danger btn-sm"
-                      title="Remove domain">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
+              <div id="actions-{{ domain.id }}"
+                   class="dropdown-menu hidden bg-white dark:bg-surface-card border border-light-surface-border/20 dark:border-surface-border/15 rounded-lg shadow-ambient py-1"
+                   role="menu">
+                <form method="post"
+                      action="{{ url_for('dashboard.check_domain', domain_id=domain.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                  <button type="submit" class="block w-full text-left px-4 py-2 text-sm text-light-content-primary dark:text-content-primary hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors">
+                    <i class="bi bi-arrow-repeat mr-2"></i>Check Now
+                  </button>
+                </form>
+                <a class="block w-full text-left px-4 py-2 text-sm text-light-content-primary dark:text-content-primary hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors"
+                   href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}">
+                  <i class="bi bi-eye mr-2"></i>Details
+                </a>
+                <a class="block w-full text-left px-4 py-2 text-sm text-light-content-primary dark:text-content-primary hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors"
+                   href="{{ url_for('history.domain_history', domain_id=domain.id) }}">
+                  <i class="bi bi-clock-history mr-2"></i>History
+                </a>
+                <a class="block w-full text-left px-4 py-2 text-sm text-light-content-primary dark:text-content-primary hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors"
+                   href="{{ url_for('dashboard.domain_selectors', domain_id=domain.id) }}">
+                  <i class="bi bi-key mr-2"></i>DKIM Selectors
+                </a>
+                <div class="border-t border-light-surface-border/20 dark:border-surface-border/10 my-1"></div>
+                <button type="button"
+                        class="block w-full text-left px-4 py-2 text-sm text-status-danger hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
+                        data-modal-open="deleteModal"
+                        data-domain-name="{{ domain.hostname }}"
+                        data-delete-url="{{ url_for('dashboard.delete_domain', domain_id=domain.id) }}">
+                  <i class="bi bi-trash mr-2"></i>Delete
+                </button>
+              </div>
+            </div>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {# Visible row count #}
+  <div class="px-4 py-2 border-t border-light-surface-border/20 dark:border-surface-border/10 text-light-content-muted dark:text-content-muted text-xs" id="table-footer">
+    Showing <span id="visible-count">{{ domains|length }}</span> of {{ domains|length }} domain(s)
+  </div>
 </div>
 {% else %}
-<div class="text-center py-5 text-muted">
-  <i class="bi bi-inbox display-4 d-block mb-3"></i>
-  <p class="lead">No domains are being monitored yet.</p>
-  <p>Use the form above to add your first domain.</p>
+<div class="text-center py-12 text-light-content-muted dark:text-content-muted">
+  <i class="bi bi-inbox text-5xl block mb-3"></i>
+  <p class="text-lg">No domains are being monitored yet.</p>
+  <p>Click the <strong>+ Add</strong> button above to add your first domain.</p>
 </div>
 {% endif %}
+
+{# ── Add Domain modal ── #}
+<div id="addDomainModal" class="mica-modal hidden fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="addDomainModalLabel">
+  <div class="mica-modal-backdrop absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm"></div>
+  <div class="mica-modal-content relative w-full max-w-md bg-white dark:bg-surface-card rounded-card shadow-ambient-lg border border-light-surface-border/20 dark:border-surface-border/15">
+    <form method="post" action="{{ url_for('dashboard.add_domain') }}">
+      {{ add_form.hidden_tag() }}
+      <div class="flex items-center justify-between px-5 py-4 border-b border-light-surface-border/20 dark:border-surface-border/10">
+        <h3 id="addDomainModalLabel" class="text-base font-semibold text-light-content-primary dark:text-content-primary">
+          <i class="bi bi-plus-circle mr-1.5"></i>Add Domain
+        </h3>
+        <button type="button" data-modal-close="addDomainModal"
+                class="p-1 rounded-md text-light-content-muted dark:text-content-muted hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors"
+                aria-label="Close">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+      <div class="px-5 py-4">
+        <label for="{{ add_form.hostname.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+          Hostname
+        </label>
+        {{ add_form.hostname(id=add_form.hostname.id, placeholder="example.com", class="mica-input" + (" is-invalid" if add_form.hostname.errors else "")) }}
+        {% if add_form.hostname.errors %}
+          {% for err in add_form.hostname.errors %}
+            <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+          {% endfor %}
+        {% endif %}
+        <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">Enter the domain name to monitor (e.g. example.com).</p>
+      </div>
+      <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-light-surface-border/20 dark:border-surface-border/10">
+        <button type="button" class="btn-ghost btn-sm" data-modal-close="addDomainModal">Cancel</button>
+        {{ add_form.submit(class="btn-success btn-sm") }}
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Delete confirmation modal (1B) ── #}
+<div id="deleteModal" class="mica-modal hidden fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="deleteModalLabel">
+  <div class="mica-modal-backdrop absolute inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm"></div>
+  <div class="mica-modal-content relative w-full max-w-md bg-white dark:bg-surface-card rounded-card shadow-ambient-lg border border-light-surface-border/20 dark:border-surface-border/15">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-light-surface-border/20 dark:border-surface-border/10">
+      <h3 id="deleteModalLabel" class="text-base font-semibold text-light-content-primary dark:text-content-primary">
+        <i class="bi bi-exclamation-triangle text-status-danger mr-1.5"></i>Confirm Deletion
+      </h3>
+      <button type="button" data-modal-close="deleteModal"
+              class="p-1 rounded-md text-light-content-muted dark:text-content-muted hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors"
+              aria-label="Close">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div class="px-5 py-4 text-sm text-light-content-primary dark:text-content-primary">
+      Remove <strong id="deleteModalDomain"></strong> from monitoring?
+      This will delete all check history for this domain.
+    </div>
+    <div class="flex items-center justify-end gap-2 px-5 py-3 border-t border-light-surface-border/20 dark:border-surface-border/10">
+      <button type="button" class="btn-ghost btn-sm" data-modal-close="deleteModal">Cancel</button>
+      <form id="deleteModalForm" method="post" action="">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="btn-danger btn-sm">
+          <i class="bi bi-trash"></i> Delete
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
 
 {% endblock %}
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% if add_form.hostname.errors %}
+<script>
+  openModal("addDomainModal");
+</script>
+{% endif %}
 {% endblock %}

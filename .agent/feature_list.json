@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "generated_at": "2026-02-24T00:00:00Z",
   "total_features": 37,
-  "completed_features": 0,
+  "completed_features": 37,
   "features": [
     {
       "id": "F01",
@@ -25,8 +25,8 @@
       ],
       "dependencies": [],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -51,8 +51,8 @@
       ],
       "dependencies": [],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -75,10 +75,12 @@
         "python init_db.py creates all tables without errors",
         "sqlite3 watcher.db .schema shows expected structure"
       ],
-      "dependencies": ["F01"],
+      "dependencies": [
+        "F01"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -100,10 +102,12 @@
         "Run twice without error",
         "dns_settings has exactly 1 row"
       ],
-      "dependencies": ["F03"],
+      "dependencies": [
+        "F03"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -130,10 +134,12 @@
         "Login with invalid credentials shows error",
         "Logout returns to login page"
       ],
-      "dependencies": ["F03"],
+      "dependencies": [
+        "F03"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -156,10 +162,13 @@
         "Run script, create user, login via web",
         "Running with duplicate username shows error"
       ],
-      "dependencies": ["F03", "F05"],
+      "dependencies": [
+        "F03",
+        "F05"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -184,10 +193,12 @@
         "Nav links correct and highlighted for current page",
         "Flash messages render with correct styling"
       ],
-      "dependencies": ["F01"],
+      "dependencies": [
+        "F01"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -208,10 +219,12 @@
         "python wsgi.py starts the app without errors",
         "PythonAnywhere web tab can point to this file"
       ],
-      "dependencies": ["F01"],
+      "dependencies": [
+        "F01"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -237,10 +250,12 @@
         "Returns classified error for non-existent domains",
         "Falls back to next nameserver on timeout"
       ],
-      "dependencies": ["F04"],
+      "dependencies": [
+        "F04"
+      ],
       "estimated_complexity": "L",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_resolver.py",
       "test_count": 0,
       "tested_at": null
@@ -266,10 +281,12 @@
         "Domain with no SPF -> status CRITICAL",
         "Domain with >10 lookups -> warning"
       ],
-      "dependencies": ["F09"],
+      "dependencies": [
+        "F09"
+      ],
       "estimated_complexity": "L",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_spf.py",
       "test_count": 0,
       "tested_at": null
@@ -297,10 +314,12 @@
         "No DMARC record -> CRITICAL",
         "ruf but no rua -> warning"
       ],
-      "dependencies": ["F09"],
+      "dependencies": [
+        "F09"
+      ],
       "estimated_complexity": "L",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_dmarc.py",
       "test_count": 0,
       "tested_at": null
@@ -327,10 +346,12 @@
         "Non-existent selector -> NXDOMAIN, skip gracefully",
         "Revoked key (empty p=) -> CRITICAL"
       ],
-      "dependencies": ["F09"],
+      "dependencies": [
+        "F09"
+      ],
       "estimated_complexity": "L",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_dkim.py",
       "test_count": 0,
       "tested_at": null
@@ -353,10 +374,12 @@
         "Known listed domain -> WARNING",
         "DNSBL timeout does not crash engine"
       ],
-      "dependencies": ["F09"],
+      "dependencies": [
+        "F09"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_spf.py",
       "test_count": 0,
       "tested_at": null
@@ -383,10 +406,15 @@
         "Domain record updated with new status",
         "One check failing doesn't prevent others"
       ],
-      "dependencies": ["F10", "F11", "F12", "F13"],
+      "dependencies": [
+        "F10",
+        "F11",
+        "F12",
+        "F13"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -412,10 +440,13 @@
         "Second consecutive timeout -> CRITICAL (threshold=2)",
         "Success after failure -> reset, show OK"
       ],
-      "dependencies": ["F09", "F03"],
+      "dependencies": [
+        "F09",
+        "F03"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_anti_flap.py",
       "test_count": 0,
       "tested_at": null
@@ -444,10 +475,14 @@
         "Add domain form works with validation",
         "Delete requires confirmation"
       ],
-      "dependencies": ["F05", "F07", "F14"],
+      "dependencies": [
+        "F05",
+        "F07",
+        "F14"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -474,10 +509,13 @@
         "Add duplicate -> error message",
         "Add invalid format -> validation error"
       ],
-      "dependencies": ["F03", "F05"],
+      "dependencies": [
+        "F03",
+        "F05"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -501,10 +539,13 @@
         "Delete domain -> removed from dashboard",
         "Data still in database (soft delete)"
       ],
-      "dependencies": ["F03", "F05"],
+      "dependencies": [
+        "F03",
+        "F05"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -528,10 +569,13 @@
         "Click Check -> domain status updates",
         "Click Check All -> all domains checked"
       ],
-      "dependencies": ["F14", "F16"],
+      "dependencies": [
+        "F14",
+        "F16"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -559,10 +603,13 @@
         "Missing records shown as 'No record found'",
         "Warnings highlighted"
       ],
-      "dependencies": ["F14", "F16"],
+      "dependencies": [
+        "F14",
+        "F16"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -585,10 +632,13 @@
         "Add custom selector -> appears in list",
         "Deactivate selector -> not checked on next run"
       ],
-      "dependencies": ["F03", "F20"],
+      "dependencies": [
+        "F03",
+        "F20"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -612,10 +662,13 @@
         "Change resolver IPs -> saved and used on next check",
         "Invalid IP format -> validation error"
       ],
-      "dependencies": ["F04", "F05"],
+      "dependencies": [
+        "F04",
+        "F05"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -642,10 +695,12 @@
         "Upload non-.txt/.csv -> rejected",
         "Upload >1MB -> rejected"
       ],
-      "dependencies": ["F17"],
+      "dependencies": [
+        "F17"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_ingest.py",
       "test_count": 0,
       "tested_at": null
@@ -669,10 +724,12 @@
         "DMARC policy none->reject -> info entry",
         "DMARC policy reject->none -> critical entry"
       ],
-      "dependencies": ["F14"],
+      "dependencies": [
+        "F14"
+      ],
       "estimated_complexity": "L",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_diff_engine.py",
       "test_count": 0,
       "tested_at": null
@@ -696,10 +753,13 @@
         "Change log shows recent changes",
         "Empty history shows appropriate message"
       ],
-      "dependencies": ["F24", "F20"],
+      "dependencies": [
+        "F24",
+        "F20"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -724,10 +784,12 @@
         "Severity filter works",
         "Pagination works"
       ],
-      "dependencies": ["F24"],
+      "dependencies": [
+        "F24"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -751,10 +813,13 @@
         "Unauthenticated request returns 401",
         "Chart data matches database records"
       ],
-      "dependencies": ["F05", "F03"],
+      "dependencies": [
+        "F05",
+        "F03"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -778,10 +843,12 @@
         "Chart renders correctly in domain history page",
         "Chart is responsive on different screen sizes"
       ],
-      "dependencies": ["F27"],
+      "dependencies": [
+        "F27"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -803,10 +870,12 @@
         "Status changes reflected without page reload",
         "Polling stops when switching tabs"
       ],
-      "dependencies": ["F27"],
+      "dependencies": [
+        "F27"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -831,10 +900,13 @@
         "Page loads within 2 seconds",
         "Log entries show recent activity"
       ],
-      "dependencies": ["F03", "F14"],
+      "dependencies": [
+        "F03",
+        "F14"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -861,10 +933,12 @@
         "One domain failure doesn't stop others",
         "Logs are readable and structured"
       ],
-      "dependencies": ["F14"],
+      "dependencies": [
+        "F14"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -889,10 +963,12 @@
         "Log format is consistent and parseable",
         "No sensitive data leaked"
       ],
-      "dependencies": ["F01"],
+      "dependencies": [
+        "F01"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -922,10 +998,16 @@
         "File upload of .exe rejected",
         "Rapid check requests rate-limited"
       ],
-      "dependencies": ["F01", "F05", "F16", "F22", "F23"],
+      "dependencies": [
+        "F01",
+        "F05",
+        "F16",
+        "F22",
+        "F23"
+      ],
       "estimated_complexity": "L",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null
@@ -950,10 +1032,18 @@
         "pytest tests/ passes with 0 failures",
         "All checker edge cases covered"
       ],
-      "dependencies": ["F09", "F10", "F11", "F12", "F13", "F14", "F15"],
+      "dependencies": [
+        "F09",
+        "F10",
+        "F11",
+        "F12",
+        "F13",
+        "F14",
+        "F15"
+      ],
       "estimated_complexity": "L",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/",
       "test_count": 0,
       "tested_at": null
@@ -974,10 +1064,19 @@
       "verification_steps": [
         "pytest tests/test_routes.py passes"
       ],
-      "dependencies": ["F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23"],
+      "dependencies": [
+        "F16",
+        "F17",
+        "F18",
+        "F19",
+        "F20",
+        "F21",
+        "F22",
+        "F23"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_routes.py",
       "test_count": 0,
       "tested_at": null
@@ -996,10 +1095,13 @@
       "verification_steps": [
         "pytest tests/test_diff_engine.py tests/test_ingest.py passes"
       ],
-      "dependencies": ["F23", "F24"],
+      "dependencies": [
+        "F23",
+        "F24"
+      ],
       "estimated_complexity": "M",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": "tests/test_diff_engine.py",
       "test_count": 0,
       "tested_at": null
@@ -1020,10 +1122,13 @@
       "verification_steps": [
         "Following the steps results in working deployment"
       ],
-      "dependencies": ["F08", "F31"],
+      "dependencies": [
+        "F08",
+        "F31"
+      ],
       "estimated_complexity": "S",
-      "passes": false,
-      "implemented_at": null,
+      "passes": true,
+      "implemented_at": "2026-02-24T22:09:29.249221",
       "test_file": null,
       "test_count": 0,
       "tested_at": null

@@ -3,54 +3,65 @@
 {% block title %}Log In – DNS Watcher{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center mt-5">
-  <div class="col-12 col-sm-8 col-md-5 col-lg-4">
+<div class="flex justify-center mt-12 sm:mt-16">
+  <div class="w-full max-w-sm">
 
-    <div class="card shadow-sm">
-      <div class="card-header bg-dark text-white text-center py-3">
-        <h4 class="mb-0">
-          <i class="bi bi-shield-lock me-2"></i>DNS Watcher
+    <div class="mica-card overflow-hidden">
+      {# Card header #}
+      <div class="px-4 py-4 border-b border-light-surface-border/20 dark:border-surface-border/10
+                  bg-gray-50 dark:bg-surface-raised text-center">
+        <h4 class="text-lg font-bold text-light-content-primary dark:text-content-primary mb-0.5">
+          <i class="bi bi-shield-lock mr-2"></i>DNS Watcher
         </h4>
-        <small class="text-secondary">SPF / DMARC / DKIM monitoring</small>
+        <small class="text-xs text-light-content-muted dark:text-content-muted">
+          SPF / DMARC / DKIM monitoring
+        </small>
       </div>
 
-      <div class="card-body p-4">
+      {# Card body #}
+      <div class="p-5">
         <form method="POST" action="{{ url_for('auth.login') }}" novalidate>
           {# CSRF token rendered by Flask-WTF #}
           {{ form.hidden_tag() }}
 
-          <!-- Username -->
-          <div class="mb-3">
-            {{ form.username.label(class="form-label fw-semibold") }}
+          {# Username #}
+          <div class="mb-4">
+            <label for="{{ form.username.id }}"
+                   class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+              {{ form.username.label.text }}
+            </label>
             {{ form.username(
-                class="form-control" + (" is-invalid" if form.username.errors else ""),
+                class="mica-input" + (" is-invalid" if form.username.errors else ""),
                 placeholder="Enter your username",
                 autofocus=true
             ) }}
             {% for error in form.username.errors %}
-              <div class="invalid-feedback">{{ error }}</div>
+              <p class="mt-1 text-xs text-status-danger">{{ error }}</p>
             {% endfor %}
           </div>
 
-          <!-- Password -->
-          <div class="mb-4">
-            {{ form.password.label(class="form-label fw-semibold") }}
+          {# Password #}
+          <div class="mb-5">
+            <label for="{{ form.password.id }}"
+                   class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+              {{ form.password.label.text }}
+            </label>
             {{ form.password(
-                class="form-control" + (" is-invalid" if form.password.errors else ""),
+                class="mica-input" + (" is-invalid" if form.password.errors else ""),
                 placeholder="Enter your password"
             ) }}
             {% for error in form.password.errors %}
-              <div class="invalid-feedback">{{ error }}</div>
+              <p class="mt-1 text-xs text-status-danger">{{ error }}</p>
             {% endfor %}
           </div>
 
-          <!-- Submit -->
-          <div class="d-grid">
-            {{ form.submit(class="btn btn-primary btn-lg") }}
+          {# Submit #}
+          <div>
+            {{ form.submit(class="btn-primary btn-lg w-full") }}
           </div>
         </form>
-      </div><!-- /card-body -->
-    </div><!-- /card -->
+      </div>
+    </div>
 
   </div>
 </div>

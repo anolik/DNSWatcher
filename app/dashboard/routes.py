@@ -21,7 +21,7 @@ from flask_login import current_user, login_required
 from app import db
 from app.dashboard import bp
 from app.dashboard.forms import AddDomainForm, AddSelectorForm
-from app.models import DkimSelector, Domain
+from app.models import DkimSelector, DmarcReport, DnsSettings, Domain
 from app.utils.rate_limit import is_rate_limited
 
 logger = logging.getLogger(__name__)
@@ -84,11 +84,15 @@ def index():
         key = domain.current_status if domain.current_status in status_counts else "pending"
         status_counts[key] += 1
 
+    dns_settings = db.session.get(DnsSettings, 1)
+    managed_set = dns_settings.get_managed_domains() if dns_settings else set()
+
     return render_template(
         "dashboard.html",
         domains=domains,
         status_counts=status_counts,
         add_form=add_form,
+        managed_set=managed_set,
     )
 
 
@@ -276,6 +280,26 @@ def domain_detail(domain_id: int):
     dkim_records = latest_result.get_dkim_records() if latest_result else []
     reputation_details = latest_result.get_reputation_details() if latest_result else {}
     dns_errors = latest_result.get_dns_errors() if latest_result else []
+    mx_records = latest_result.get_mx_records() if latest_result else []
+    mx_provider = latest_result.mx_provider if latest_result else None
+    registrar_name = latest_result.registrar if latest_result else None
+    registrar_details = latest_result.get_registrar_details() if latest_result else {}
+    mx_geolocation = latest_result.get_mx_geolocation() if latest_result else []
+    law25_status = latest_result.law25_status if latest_result else None
+    mta_sts_details = latest_result.get_mta_sts_details() if latest_result else {}
+    bimi_details = latest_result.get_bimi_details() if latest_result else {}
+
+    # DMARC reports linked to this domain
+    dmarc_reports = (
+        db.session.execute(
+            db.select(DmarcReport)
+            .where(DmarcReport.domain_id == domain.id)
+            .order_by(DmarcReport.begin_date.desc())
+            .limit(20)
+        )
+        .scalars()
+        .all()
+    )
 
     return render_template(
         "domain_detail.html",
@@ -286,6 +310,15 @@ def domain_detail(domain_id: int):
         dkim_records=dkim_records,
         reputation_details=reputation_details,
         dns_errors=dns_errors,
+        mx_records=mx_records,
+        mx_provider=mx_provider,
+        registrar_name=registrar_name,
+        registrar_details=registrar_details,
+        mx_geolocation=mx_geolocation,
+        law25_status=law25_status,
+        mta_sts_details=mta_sts_details,
+        bimi_details=bimi_details,
+        dmarc_reports=dmarc_reports,
     )
 
 

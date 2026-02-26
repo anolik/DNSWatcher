@@ -1,8 +1,8 @@
 """
 Ingest blueprint routes - F23.
 
-Accepts an uploaded file containing email addresses and extracts unique
-domains, adding any that are not already tracked in the database.
+Accepts an uploaded file containing email addresses, domain names, or a
+mix of both, and extracts unique domains to add to monitoring.
 
 Security controls (F33):
 - Only .txt and .csv file extensions are accepted.
@@ -20,7 +20,7 @@ from flask_login import current_user, login_required
 
 from app import db
 from app.ingest import bp
-from app.ingest.parser import parse_email_file
+from app.ingest.parser import parse_import_file
 from app.models import DkimSelector, Domain
 
 logger = logging.getLogger(__name__)
@@ -120,14 +120,14 @@ def index():
             flash("The uploaded file is empty.", "warning")
             return redirect(url_for("ingest.index"))
 
-        # Parse domains from the file
-        result = parse_email_file(content)
+        # Parse domains from the file (supports emails, bare domains, or mixed)
+        result = parse_import_file(content)
         parsed_domains: list[str] = result["domains"]
         invalid_lines: list[str] = result["invalid_lines"]
 
         if not parsed_domains:
             flash(
-                f"No valid email addresses found in the file. "
+                f"No valid domains found in the file. "
                 f"{len(invalid_lines)} line(s) could not be parsed.",
                 "warning",
             )
@@ -177,18 +177,22 @@ def index():
             uploaded_file.filename,
         )
 
-        # Build summary flash message
+        # Build summary flash message with domain names (up to 10)
         parts: list[str] = []
         if added:
-            parts.append(f"{len(added)} domain(s) added")
+            names = ", ".join(added[:10])
+            suffix = f" (+{len(added) - 10} more)" if len(added) > 10 else ""
+            parts.append(f"{len(added)} domain(s) added: {names}{suffix}")
         if reactivated:
-            parts.append(f"{len(reactivated)} reactivated")
+            names = ", ".join(reactivated[:10])
+            suffix = f" (+{len(reactivated) - 10} more)" if len(reactivated) > 10 else ""
+            parts.append(f"{len(reactivated)} reactivated: {names}{suffix}")
         if skipped:
             parts.append(f"{len(skipped)} already monitored")
         if invalid_lines:
-            parts.append(f"{len(invalid_lines)} line(s) skipped (no email found)")
+            parts.append(f"{len(invalid_lines)} line(s) skipped (no domain found)")
 
-        summary = "Import complete: " + ", ".join(parts) + "."
+        summary = "Import complete: " + ". ".join(parts) + "."
         flash(summary, "success" if (added or reactivated) else "info")
         return redirect(url_for("ingest.index"))
 

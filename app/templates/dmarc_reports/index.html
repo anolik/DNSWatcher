@@ -14,7 +14,7 @@
 {# ── Toolbar ── #}
 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
 
-  {# Domain filter #}
+  {# Domain + Org filters #}
   <form method="GET" action="{{ url_for('dmarc_reports.index') }}" class="flex items-center gap-2">
     <label for="domain-filter" class="text-sm font-medium text-light-content-secondary dark:text-content-secondary whitespace-nowrap">
       <i class="bi bi-funnel mr-1"></i>Filter:
@@ -27,10 +27,24 @@
         <option value="{{ d }}" {% if d == domain_filter %}selected{% endif %}>{{ d }}</option>
       {% endfor %}
     </select>
+    <select id="org-filter" name="org"
+            class="mica-select text-sm"
+            onchange="this.form.submit()">
+      <option value="">All Orgs</option>
+      {% for o in orgs %}
+        <option value="{{ o }}" {% if o == org_filter %}selected{% endif %}>{{ o }}</option>
+      {% endfor %}
+    </select>
   </form>
 
   {# Action buttons #}
   <div class="flex items-center gap-2">
+    {# Export CSV #}
+    <a href="{{ url_for('dmarc_reports.export_csv', domain=domain_filter or '', org=org_filter or '', sort=sort_col, order=sort_order) }}"
+       class="btn-secondary">
+      <i class="bi bi-download mr-1"></i>Export CSV
+    </a>
+
     {# Fetch Now #}
     <form method="POST" action="{{ url_for('dmarc_reports.fetch') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
@@ -45,6 +59,69 @@
     </button>
   </div>
 
+</div>
+
+{# ── Summary cards ── #}
+{% if summary_stats and summary_stats.total_reports > 0 %}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+
+  {# Total Reports #}
+  <div class="mica-card px-4 py-3">
+    <div class="text-xs font-semibold uppercase tracking-wide text-light-content-muted dark:text-content-muted mb-1">
+      Total Reports
+    </div>
+    <div class="text-2xl font-bold text-light-content-primary dark:text-content-primary tabular-nums">
+      {{ summary_stats.total_reports }}
+    </div>
+  </div>
+
+  {# Overall Pass Rate #}
+  <div class="mica-card px-4 py-3">
+    <div class="text-xs font-semibold uppercase tracking-wide text-light-content-muted dark:text-content-muted mb-1">
+      Pass Rate
+    </div>
+    <div class="text-2xl font-bold tabular-nums {% if summary_stats.pass_rate >= 90 %}text-status-success{% elif summary_stats.pass_rate >= 70 %}text-status-warning{% else %}text-status-danger{% endif %}">
+      {{ summary_stats.pass_rate }}%
+    </div>
+  </div>
+
+  {# Total Messages #}
+  <div class="mica-card px-4 py-3">
+    <div class="text-xs font-semibold uppercase tracking-wide text-light-content-muted dark:text-content-muted mb-1">
+      Total Messages
+    </div>
+    <div class="text-2xl font-bold text-light-content-primary dark:text-content-primary tabular-nums">
+      {{ "{:,}".format(summary_stats.total_messages) }}
+    </div>
+  </div>
+
+  {# Top Failing Domain #}
+  <div class="mica-card px-4 py-3">
+    <div class="text-xs font-semibold uppercase tracking-wide text-light-content-muted dark:text-content-muted mb-1">
+      Top Failing Domain
+    </div>
+    <div class="text-sm font-bold text-light-content-primary dark:text-content-primary truncate" title="{{ summary_stats.top_failing_domain or 'None' }}">
+      {% if summary_stats.top_failing_domain %}
+        <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ summary_stats.top_failing_domain }}</code>
+      {% else %}
+        <span class="text-light-content-muted dark:text-content-muted">—</span>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endif %}
+
+{# ── Trend chart ── #}
+<div class="mica-card overflow-hidden mb-4">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-graph-up mr-1.5"></i>Pass / Fail Trend
+    </span>
+  </div>
+  <div class="p-4" style="height: 280px;">
+    <canvas id="dmarc-trend-chart"></canvas>
+  </div>
 </div>
 
 {# ── Reports table ── #}
@@ -62,13 +139,32 @@
     <table class="mica-table">
       <thead>
         <tr>
-          <th>Date Range</th>
-          <th>Org</th>
-          <th>Policy Domain</th>
-          <th class="text-right">Total</th>
-          <th class="text-right">Pass</th>
-          <th class="text-right">Fail</th>
-          <th>Source</th>
+          {# Sortable column headers — each links to the same page with sort/order params toggled #}
+          {% set cols = [
+            ("begin_date",     "Date Range",    ""),
+            ("org_name",       "Org",           ""),
+            ("policy_domain",  "Policy Domain", ""),
+            ("total_messages", "Total",         "text-right"),
+            ("pass_count",     "Pass",          "text-right"),
+            ("fail_count",     "Fail",          "text-right"),
+            ("source",         "Source",        ""),
+            ("email_subject",  "Subject",       ""),
+          ] %}
+          {% for col_key, col_label, col_class in cols %}
+            {% set next_order = 'asc' if (sort_col == col_key and sort_order == 'desc') else 'desc' %}
+            <th class="{{ col_class }}">
+              <a href="{{ url_for('dmarc_reports.index', sort=col_key, order=next_order, domain=domain_filter or '', org=org_filter or '') }}"
+                 class="inline-flex items-center gap-1 hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none
+                        {% if sort_col == col_key %}text-primary-500 dark:text-primary-400{% endif %}">
+                {{ col_label }}
+                {% if sort_col == col_key %}
+                  <i class="bi bi-caret-{{ 'up' if sort_order == 'asc' else 'down' }}-fill text-xs"></i>
+                {% else %}
+                  <i class="bi bi-chevron-expand text-xs opacity-30"></i>
+                {% endif %}
+              </a>
+            </th>
+          {% endfor %}
           <th></th>
         </tr>
       </thead>
@@ -125,6 +221,11 @@
               {% endif %}
             </td>
 
+            {# Email Subject (truncated) #}
+            <td class="text-sm text-light-content-secondary dark:text-content-secondary max-w-[200px] truncate" title="{{ report.email_subject or '' }}">
+              {{ (report.email_subject or '—') | truncate(40) }}
+            </td>
+
             {# Actions #}
             <td class="text-right">
               <a href="{{ url_for('dmarc_reports.detail', id=report.id) }}"
@@ -136,7 +237,7 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="8" class="text-center text-light-content-muted dark:text-content-muted py-10">
+            <td colspan="9" class="text-center text-light-content-muted dark:text-content-muted py-10">
               <i class="bi bi-inbox text-3xl block mb-2 opacity-40"></i>
               No DMARC reports ingested yet.
             </td>
@@ -147,11 +248,67 @@
   </div>
 
   {# Pagination #}
-  {% set extra = {} %}
-  {% if domain_filter %}{% set extra = {'domain': domain_filter} %}{% endif %}
+  {% set extra = {'sort': sort_col, 'order': sort_order} %}
+  {% if domain_filter %}{% set extra = dict(extra, domain=domain_filter) %}{% endif %}
+  {% if org_filter %}{% set extra = dict(extra, org=org_filter) %}{% endif %}
   {{ pagination(pager, 'dmarc_reports.index', extra) }}
 
 </div>
+
+{# ── Top Failing IPs ── #}
+{% if top_ips %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('top-ips-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-exclamation-diamond mr-1.5"></i>Top Failing Source IPs
+      <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ top_ips|length }})</span>
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+
+  <div id="top-ips-body" class="hidden">
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead>
+          <tr>
+            <th>Source IP</th>
+            <th class="text-right">Failed Messages</th>
+            <th class="text-right">Total Messages</th>
+            <th class="text-right">Fail Rate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ip in top_ips %}
+          <tr>
+            <td>
+              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ ip.source_ip }}</code>
+            </td>
+            <td class="text-right">
+              {% if ip.fail_count > 0 %}
+                <span class="badge-critical">{{ ip.fail_count }}</span>
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted tabular-nums">0</span>
+              {% endif %}
+            </td>
+            <td class="text-right tabular-nums text-light-content-secondary dark:text-content-secondary">
+              {{ ip.total_count }}
+            </td>
+            <td class="text-right tabular-nums">
+              {% set rate = (ip.fail_count / ip.total_count * 100) | round(1) if ip.total_count > 0 else 0 %}
+              <span class="{% if rate >= 50 %}text-status-danger{% elif rate >= 20 %}text-status-warning{% else %}text-status-success{% endif %}">
+                {{ rate }}%
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 
 {# ── Upload modal ── #}
@@ -173,9 +330,10 @@
              id="dmarc-file-input"
              name="dmarc_file"
              accept=".zip,.gz,.xml"
+             multiple
              class="mica-input text-sm w-full" />
       <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
-        Accepted formats: .zip, .gz, .xml
+        Accepted formats: .zip, .gz, .xml — Select multiple files at once.
       </p>
     </div>
 
@@ -196,4 +354,8 @@
 </form>
 {% endcall %}
 
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/dmarc_charts.js') }}"></script>
 {% endblock %}

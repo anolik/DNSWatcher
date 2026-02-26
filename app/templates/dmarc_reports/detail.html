@@ -66,6 +66,15 @@
           {{ report.ingested_at|to_tz("%Y-%m-%d %H:%M") }}
         </dd>
 
+        {% if report.email_subject %}
+        <dt class="font-semibold text-light-content-secondary dark:text-content-secondary whitespace-nowrap">
+          Email Subject
+        </dt>
+        <dd class="text-light-content-primary dark:text-content-primary text-sm">
+          {{ report.email_subject }}
+        </dd>
+        {% endif %}
+
       </dl>
     </div>
 
@@ -128,12 +137,36 @@
     <table class="mica-table">
       <thead>
         <tr>
-          <th>Source IP</th>
-          <th class="text-right">Count</th>
-          <th>Disposition</th>
-          <th class="text-center">DKIM Eval</th>
-          <th class="text-center">SPF Eval</th>
-          <th>Header From</th>
+          <th class="sortable-th" data-sort-col="0" data-sort-type="text">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              Source IP <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
+          <th class="sortable-th text-right" data-sort-col="1" data-sort-type="num">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              Count <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
+          <th class="sortable-th" data-sort-col="2" data-sort-type="text">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              Disposition <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
+          <th class="sortable-th text-center" data-sort-col="3" data-sort-type="text">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              DKIM Eval <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
+          <th class="sortable-th text-center" data-sort-col="4" data-sort-type="text">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              SPF Eval <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
+          <th class="sortable-th" data-sort-col="5" data-sort-type="text">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              Header From <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -249,4 +282,91 @@
   </div>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const table = document.querySelector('.mica-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  const headers = table.querySelectorAll('.sortable-th');
+  let currentCol = -1;
+  let currentDir = 'asc';
+
+  headers.forEach(function(th) {
+    th.addEventListener('click', function() {
+      const col = parseInt(th.dataset.sortCol, 10);
+      const type = th.dataset.sortType;
+
+      if (currentCol === col) {
+        currentDir = currentDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentCol = col;
+        currentDir = 'asc';
+      }
+
+      /* Collect primary data rows paired with their optional detail sub-rows */
+      const rowPairs = [];
+      const allRows = Array.from(tbody.querySelectorAll('tr'));
+      for (let i = 0; i < allRows.length; i++) {
+        const row = allRows[i];
+        /* Skip the empty-state row */
+        if (row.querySelector('.bi-inbox')) continue;
+        /* Skip detail sub-rows (they have colspan) — they get attached to their parent */
+        const firstTd = row.querySelector('td');
+        if (firstTd && firstTd.getAttribute('colspan')) continue;
+
+        /* Check if next row is a detail sub-row */
+        let detailRow = null;
+        if (i + 1 < allRows.length) {
+          const nextFirst = allRows[i + 1].querySelector('td');
+          if (nextFirst && nextFirst.getAttribute('colspan') && !allRows[i + 1].querySelector('.bi-inbox')) {
+            detailRow = allRows[i + 1];
+          }
+        }
+
+        const cells = row.querySelectorAll('td');
+        const cellText = cells[col] ? cells[col].textContent.trim() : '';
+        rowPairs.push({ row: row, detail: detailRow, value: cellText });
+      }
+
+      rowPairs.sort(function(a, b) {
+        let va = a.value, vb = b.value;
+        if (type === 'num') {
+          va = parseFloat(va.replace(/[^0-9.\-]/g, '')) || 0;
+          vb = parseFloat(vb.replace(/[^0-9.\-]/g, '')) || 0;
+        } else {
+          va = va.toLowerCase();
+          vb = vb.toLowerCase();
+        }
+        if (va < vb) return currentDir === 'asc' ? -1 : 1;
+        if (va > vb) return currentDir === 'asc' ? 1 : -1;
+        return 0;
+      });
+
+      /* Re-append rows in sorted order */
+      rowPairs.forEach(function(pair) {
+        tbody.appendChild(pair.row);
+        if (pair.detail) tbody.appendChild(pair.detail);
+      });
+
+      /* Update sort icons */
+      headers.forEach(function(h) {
+        const icon = h.querySelector('.sort-icon');
+        if (!icon) return;
+        const c = parseInt(h.dataset.sortCol, 10);
+        if (c === currentCol) {
+          icon.className = 'bi bi-caret-' + (currentDir === 'asc' ? 'up' : 'down') + '-fill text-xs sort-icon';
+          icon.classList.remove('opacity-30');
+          h.querySelector('span').classList.add('text-primary-500', 'dark:text-primary-400');
+        } else {
+          icon.className = 'bi bi-chevron-expand text-xs opacity-30 sort-icon';
+          h.querySelector('span').classList.remove('text-primary-500', 'dark:text-primary-400');
+        }
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

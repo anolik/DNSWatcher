@@ -1,34 +1,40 @@
 {% extends "base.html" %}
-{% block title %}Settings – DNS Watcher{% endblock %}
+{% block title %}Settings -- DNS Watcher{% endblock %}
 
 {% block content %}
-<h2 class="mb-4"><i class="bi bi-gear me-2"></i>Settings</h2>
+<div class="flex items-center justify-between mb-6">
+  <h2 class="text-xl font-bold text-light-content-primary dark:text-content-primary">
+    <i class="bi bi-gear mr-2"></i>Settings
+  </h2>
+</div>
 
-<div class="row g-4">
-  <!-- DNS Resolver settings -->
-  <div class="col-12 col-lg-6">
-    <div class="card shadow-sm">
-      <div class="card-header">DNS Resolver Configuration</div>
-      <div class="card-body">
-        {% if dns_settings %}
-          <dl class="row mb-0">
-            <dt class="col-sm-5">Resolvers</dt>
-            <dd class="col-sm-7">
-              {% for r in dns_settings.get_resolvers() %}
-                <code class="me-1">{{ r }}</code>
-              {% endfor %}
-            </dd>
-            <dt class="col-sm-5">Timeout</dt>
-            <dd class="col-sm-7">{{ dns_settings.timeout_seconds }}s</dd>
-            <dt class="col-sm-5">Retries</dt>
-            <dd class="col-sm-7">{{ dns_settings.retries }}</dd>
-            <dt class="col-sm-5">Flap Threshold</dt>
-            <dd class="col-sm-7">{{ dns_settings.flap_threshold }} failures</dd>
-          </dl>
-        {% else %}
-          <p class="text-muted mb-0">No settings found. Run <code>python init_db.py</code> to seed defaults.</p>
-        {% endif %}
-      </div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+  {# DNS Resolver settings #}
+  <div class="mica-card overflow-hidden">
+    <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+      <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+        DNS Resolver Configuration
+      </span>
+    </div>
+    <div class="p-4">
+      {% if dns_settings %}
+        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+          <dt class="font-semibold text-light-content-primary dark:text-content-primary">Resolvers</dt>
+          <dd class="text-light-content-secondary dark:text-content-secondary">
+            {% for r in dns_settings.get_resolvers() %}
+              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded mr-1">{{ r }}</code>
+            {% endfor %}
+          </dd>
+          <dt class="font-semibold text-light-content-primary dark:text-content-primary">Timeout</dt>
+          <dd class="text-light-content-secondary dark:text-content-secondary">{{ dns_settings.timeout_seconds }}s</dd>
+          <dt class="font-semibold text-light-content-primary dark:text-content-primary">Retries</dt>
+          <dd class="text-light-content-secondary dark:text-content-secondary">{{ dns_settings.retries }}</dd>
+          <dt class="font-semibold text-light-content-primary dark:text-content-primary">Flap Threshold</dt>
+          <dd class="text-light-content-secondary dark:text-content-secondary">{{ dns_settings.flap_threshold }} failures</dd>
+        </dl>
+      {% else %}
+        <p class="text-sm text-light-content-muted dark:text-content-muted">No settings found. Run <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">python init_db.py</code> to seed defaults.</p>
+      {% endif %}
     </div>
   </div>
 </div>

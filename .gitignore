@@ -19,4 +19,4 @@ htmlcov/
 .venv/
 node_modules/
 .claude/
-data/
+/data/

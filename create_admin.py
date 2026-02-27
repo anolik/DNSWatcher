@@ -127,11 +127,20 @@ def create_admin(username: str, password: str, email: str) -> None:
 def main() -> None:
     args = parse_args()
 
-    username: str = args.username if args.username else prompt_username()
-    password: str = args.password if args.password else prompt_password()
-    email: str = args.email if args.email else prompt_email()
+    # Detect non-interactive mode (e.g. Railway/Docker)
+    interactive = sys.stdin.isatty()
+
+    username: str = args.username if args.username else (prompt_username() if interactive else _bail("--username"))
+    password: str = args.password if args.password else (prompt_password() if interactive else _bail("--password"))
+    email: str = args.email if args.email else (prompt_email() if interactive else "admin@localhost")
 
     create_admin(username, password, email)
+
+
+def _bail(flag: str) -> str:
+    """Exit with error when a required flag is missing in non-interactive mode."""
+    print(f"ERROR: {flag} is required in non-interactive mode.", file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == "__main__":

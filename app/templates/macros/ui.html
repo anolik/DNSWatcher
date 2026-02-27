@@ -145,11 +145,11 @@
 {% endmacro %}
 
 
-{# ── Flash messages ── #}
+{# ── Flash messages (fixed overlay, auto-dismiss after 10s) ── #}
 {% macro flash_messages() %}
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-3 space-y-2">
+  <div id="flash-container" class="fixed top-16 right-4 z-50 space-y-2 w-full max-w-sm pointer-events-none">
     {% for category, message in messages %}
       {% if category == 'error' %}
         {% set colors = 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800/30' %}
@@ -162,7 +162,7 @@
       {% else %}
         {% set colors = 'bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700' %}
       {% endif %}
-      <div class="rounded-lg border px-4 py-3 text-sm flex items-center justify-between {{ colors }}" role="alert">
+      <div class="flash-msg pointer-events-auto rounded-lg border px-4 py-3 text-sm flex items-center justify-between shadow-lg transition-all duration-300 {{ colors }}" role="alert">
         <span>{{ message }}</span>
         <button type="button" onclick="this.parentElement.remove()"
                 class="ml-4 p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
@@ -172,6 +172,18 @@
       </div>
     {% endfor %}
   </div>
+  <script>
+    (function(){
+      var msgs = document.querySelectorAll('.flash-msg');
+      msgs.forEach(function(el){
+        setTimeout(function(){
+          el.style.opacity = '0';
+          el.style.transform = 'translateX(20px)';
+          setTimeout(function(){ el.remove(); }, 300);
+        }, 10000);
+      });
+    })();
+  </script>
   {% endif %}
 {% endwith %}
 {% endmacro %}

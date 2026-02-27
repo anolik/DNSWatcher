@@ -183,8 +183,9 @@ def _get_attachments(mailbox: str, message_id: str, token: str) -> list[dict]:
     Returns:
         List of dicts with keys 'name' (str) and 'data' (bytes).
     """
+    safe_msg_id = urllib.parse.quote(message_id, safe="")
     params = urllib.parse.urlencode({"$select": "name,contentBytes"})
-    url = f"{_GRAPH_BASE}/users/{mailbox}/messages/{message_id}/attachments?{params}"
+    url = f"{_GRAPH_BASE}/users/{mailbox}/messages/{safe_msg_id}/attachments?{params}"
     response = _make_request(url, token=token)
 
     attachments: list[dict] = []
@@ -233,7 +234,8 @@ def _mark_as_read(mailbox: str, message_id: str, token: str) -> None:
         message_id: Graph API message ID.
         token: Valid Graph API bearer token.
     """
-    url = f"{_GRAPH_BASE}/users/{mailbox}/messages/{message_id}"
+    safe_msg_id = urllib.parse.quote(message_id, safe="")
+    url = f"{_GRAPH_BASE}/users/{mailbox}/messages/{safe_msg_id}"
     _make_request(url, token=token, method="PATCH", body={"isRead": True})
 
 
@@ -337,11 +339,17 @@ def fetch_dmarc_emails(settings: "DnsSettings") -> list[dict]:
                 token=token,
             )
         except urllib.error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                pass
             logger.error(
-                "Failed to fetch attachments for message %s (HTTP %s): %s",
+                "Failed to fetch attachments for message %s (HTTP %s): %s — %s",
                 message_id,
                 exc.code,
                 exc.reason,
+                body,
             )
             continue
         except urllib.error.URLError as exc:

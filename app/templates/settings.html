@@ -195,8 +195,12 @@
             {% endfor %}
           </div>
 
-          <div>
+          <div class="flex items-center gap-4">
             {{ form.submit(class="btn-primary") }}
+            <a href="{{ url_for('ingest.index') }}"
+               class="text-sm text-light-content-secondary dark:text-content-secondary hover:text-primary-500 transition-colors">
+              <i class="bi bi-upload mr-1"></i>Import domains from file
+            </a>
           </div>
         </div>{# /panel-dns #}
 

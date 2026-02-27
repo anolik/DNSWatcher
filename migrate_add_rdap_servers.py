@@ -1,34 +1,36 @@
-"""Add rdap_servers column to dns_settings table."""
+"""Add rdap_servers column to dns_settings table.
 
-import sqlite3
-import sys
+Run once after updating models.py:
+    python migrate_add_rdap_servers.py
+"""
 
-DB = "instance/app.db"
+from __future__ import annotations
+
+from sqlalchemy import text
+
+from app import create_app, db
 
 
-def main() -> None:
-    """Add the rdap_servers column if it does not already exist."""
-    try:
-        conn = sqlite3.connect(DB)
-    except sqlite3.OperationalError as exc:
-        print(f"Cannot open database {DB}: {exc}")
-        sys.exit(1)
-
-    cur = conn.cursor()
-    cols = [r[1] for r in cur.execute("PRAGMA table_info(dns_settings)")]
-
-    if "rdap_servers" not in cols:
-        cur.execute(
-            "ALTER TABLE dns_settings "
-            "ADD COLUMN rdap_servers TEXT NOT NULL DEFAULT '[\"https://rdap.org\"]'"
-        )
-        conn.commit()
-        print("Added rdap_servers column to dns_settings")
-    else:
-        print("Column rdap_servers already exists — skipping")
-
-    conn.close()
+def migrate() -> None:
+    """Add rdap_servers column to dns_settings if it does not exist."""
+    app = create_app()
+    with app.app_context():
+        try:
+            db.session.execute(
+                text(
+                    "ALTER TABLE dns_settings "
+                    "ADD COLUMN rdap_servers TEXT NOT NULL DEFAULT '[\"https://rdap.org\"]'"
+                )
+            )
+            db.session.commit()
+            print("  Column 'rdap_servers' added to dns_settings.")
+        except Exception as exc:
+            db.session.rollback()
+            if "duplicate column" in str(exc).lower():
+                print("  Column 'rdap_servers' already exists — skipping.")
+            else:
+                raise
 
 
 if __name__ == "__main__":
-    main()
+    migrate()

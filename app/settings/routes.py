@@ -45,6 +45,12 @@ def _apply_form_to_settings(dns_settings: DnsSettings, form: DnsSettingsForm) ->
     dns_settings.display_timezone = form.display_timezone.data
     dns_settings.check_concurrency = form.check_concurrency.data
     dns_settings.managed_domains = form.managed_domains.data or ""
+    rdap_lines = [
+        line.strip()
+        for line in (form.rdap_servers.data or "").splitlines()
+        if line.strip()
+    ]
+    dns_settings.set_rdap_servers(rdap_lines if rdap_lines else ["https://rdap.org"])
     dns_settings.check_spf_enabled = form.check_spf_enabled.data
     dns_settings.check_dmarc_enabled = form.check_dmarc_enabled.data
     dns_settings.check_dkim_enabled = form.check_dkim_enabled.data
@@ -141,6 +147,7 @@ def index():
         form.display_timezone.data = dns_settings.display_timezone
         form.check_concurrency.data = dns_settings.check_concurrency
         form.managed_domains.data = dns_settings.managed_domains or ""
+        form.rdap_servers.data = "\n".join(dns_settings.get_rdap_servers())
         form.check_spf_enabled.data = dns_settings.check_spf_enabled
         form.check_dmarc_enabled.data = dns_settings.check_dmarc_enabled
         form.check_dkim_enabled.data = dns_settings.check_dkim_enabled

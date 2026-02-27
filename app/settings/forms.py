@@ -126,6 +126,13 @@ class DnsSettingsForm(FlaskForm):
             "placeholder": "example.com\nmail.example.com\nother.org",
         },
     )
+    rdap_servers: TextAreaField = TextAreaField(
+        "RDAP Servers (one URL per line)",
+        render_kw={
+            "rows": 4,
+            "placeholder": "https://rdap.org\nhttps://rdap.verisign.com/com/v1",
+        },
+    )
     # Feature toggles
     check_spf_enabled: BooleanField = BooleanField("SPF")
     check_dmarc_enabled: BooleanField = BooleanField("DMARC")
@@ -171,6 +178,18 @@ class DnsSettingsForm(FlaskForm):
         validators=[Optional()],
     )
     submit: SubmitField = SubmitField("Save Settings")
+
+    def validate_rdap_servers(self, field: TextAreaField) -> None:
+        """Ensure each non-empty line is a valid HTTPS URL."""
+        lines = [line.strip() for line in (field.data or "").splitlines() if line.strip()]
+        if not lines:
+            return  # empty = use default
+        invalid = [u for u in lines if not u.startswith("https://")]
+        if invalid:
+            raise ValidationError(
+                f"Invalid RDAP server URL(s): {', '.join(invalid)}. "
+                "Each server must start with https://."
+            )
 
     def validate_resolvers(self, field: TextAreaField) -> None:
         """Ensure each non-empty line is a valid IPv4 address."""

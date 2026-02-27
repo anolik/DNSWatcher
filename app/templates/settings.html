@@ -195,6 +195,26 @@
             {% endfor %}
           </div>
 
+          <hr class="border-light-surface-border/20 dark:border-surface-border/10 my-4">
+
+          {# RDAP Servers #}
+          <div class="mb-4">
+            <label for="{{ form.rdap_servers.id }}"
+                   class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+              <i class="bi bi-globe mr-1.5 text-primary-400"></i>{{ form.rdap_servers.label.text }}
+            </label>
+            {{ form.rdap_servers(id=form.rdap_servers.id,
+                                 class='mica-input font-mono' + (' is-invalid' if form.rdap_servers.errors else '')) }}
+            <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+              RDAP servers used for registrar lookups (RFC 9083). Multiple servers are
+              rotated round-robin to distribute load and avoid rate limits. Default:
+              <code class="font-mono text-xs bg-gray-100 dark:bg-surface-raised px-1 py-0.5 rounded">https://rdap.org</code>.
+            </p>
+            {% for err in form.rdap_servers.errors %}
+              <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+            {% endfor %}
+          </div>
+
           <div class="flex items-center gap-4">
             {{ form.submit(class="btn-primary") }}
             <a href="{{ url_for('ingest.index') }}"
@@ -539,6 +559,12 @@
             <dt class="font-semibold text-light-content-primary dark:text-content-primary">Managed Domains</dt>
             <dd>Hostnames your organization manages. The dashboard shows
                 <span class="badge-ok">YES</span> / <span class="badge-pending">NO</span> badges accordingly.</dd>
+          </div>
+          <div>
+            <dt class="font-semibold text-light-content-primary dark:text-content-primary">RDAP Servers</dt>
+            <dd>HTTPS endpoints for RDAP (RFC 9083) registrar lookups. Requests are
+                distributed round-robin across all listed servers to avoid per-server
+                rate limits. Falls back to WHOIS when RDAP fails.</dd>
           </div>
         </dl>
       </div>

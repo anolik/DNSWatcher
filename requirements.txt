@@ -24,6 +24,9 @@ pydnsbl>=1.1.7
 # WHOIS domain registrar lookup
 python-whois>=0.9.4
 
+# RDAP (RFC 9083) — structured registrar lookups over HTTPS
+requests>=2.31.0
+
 # Timezone data (required on Windows; bundled on Linux/macOS)
 tzdata>=2024.1
 

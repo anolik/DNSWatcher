@@ -1,31 +1,38 @@
 """
-Domain registrar checker — retrieves WHOIS information for a domain.
+Domain registrar checker — RDAP primary with WHOIS fallback.
 
-Uses the ``python-whois`` library with graceful fallback if the package
-is not installed.  WHOIS failures never affect the domain check pipeline;
-they are purely informational.
+Uses direct HTTPS requests to configurable RDAP servers (RFC 9083) with
+round-robin rotation to distribute load and avoid per-server rate limits.
+Falls back to ``python-whois`` when RDAP fails.
 
-A hard 15-second thread-based timeout guards against the ``python-whois``
-library hanging on recursive WHOIS referral chains (each sub-query gets
-its own socket timeout, so the library's ``timeout`` parameter does not
-bound total wall-clock time).
+Failures never affect the domain check pipeline; registrar data is purely
+informational.
+
+A hard 20-second thread-based timeout guards against either lookup path
+hanging indefinitely.  RDAP gets an internal 8-second sub-timeout so that
+WHOIS always has time to run as fallback.
 """
 
 from __future__ import annotations
 
+import itertools
 import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime
 from typing import Any
 
+import requests
+
 logger = logging.getLogger(__name__)
 
-# Hard wall-clock limit for the entire WHOIS lookup (seconds).
-_WHOIS_HARD_TIMEOUT: int = 15
+# Hard wall-clock limit for the entire RDAP + WHOIS attempt (seconds).
+_LOOKUP_HARD_TIMEOUT: int = 20
 
-# Module-level single-thread executor reused across calls to avoid the
-# overhead of creating a new thread per lookup.
-_whois_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whois")
+# Internal timeout for each RDAP HTTP request (seconds).
+_RDAP_REQUEST_TIMEOUT: int = 8
+
+# Module-level single-thread executor reused across calls.
+_lookup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="registrar")
 
 _EMPTY_RESULT: dict[str, Any] = {
     "registrar": None,
@@ -34,15 +41,190 @@ _EMPTY_RESULT: dict[str, Any] = {
     "name_servers": [],
 }
 
+_DEFAULT_RDAP_SERVERS: list[str] = ["https://rdap.org"]
 
-def check_registrar(domain: str) -> dict[str, Any]:
-    """Query WHOIS for *domain* and return registrar information.
+# Atomic counter for round-robin server selection (thread-safe).
+_rdap_counter = itertools.count()
+
+
+# ---------------------------------------------------------------------------
+# RDAP round-robin server selection
+# ---------------------------------------------------------------------------
+
+
+def _pick_rdap_server(servers: list[str]) -> str:
+    """Return the next RDAP server URL via round-robin rotation."""
+    idx = next(_rdap_counter) % len(servers)
+    return servers[idx]
+
+
+# ---------------------------------------------------------------------------
+# RDAP lookup (direct HTTPS)
+# ---------------------------------------------------------------------------
+
+
+def _do_rdap_lookup(domain: str, servers: list[str]) -> dict[str, Any] | None:
+    """Attempt an RDAP lookup for *domain* using direct HTTPS.
+
+    Picks a server via round-robin, sends a GET request with the
+    ``application/rdap+json`` accept header, and parses the RFC 9083
+    response.
+
+    Returns:
+        A normalized result dict on success, or ``None`` if the RDAP
+        request fails (triggering WHOIS fallback).
+    """
+    if not servers:
+        return None
+
+    server = _pick_rdap_server(servers)
+    url = f"{server.rstrip('/')}/domain/{domain}"
+
+    try:
+        resp = requests.get(
+            url,
+            headers={"Accept": "application/rdap+json"},
+            timeout=_RDAP_REQUEST_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as exc:
+        logger.info(
+            "RDAP lookup for %s via %s failed (%s); falling back to WHOIS",
+            domain, server, exc,
+        )
+        return None
+    except (ValueError, KeyError) as exc:
+        logger.info(
+            "RDAP JSON parse error for %s via %s (%s); falling back to WHOIS",
+            domain, server, exc,
+        )
+        return None
+
+    return _parse_rdap_response(data)
+
+
+def _parse_rdap_response(data: dict[str, Any]) -> dict[str, Any]:
+    """Extract registrar, dates, and nameservers from an RFC 9083 response.
+
+    RFC 9083 structure:
+    - ``entities[].roles`` containing ``"registrar"`` → registrar name
+    - ``events[].eventAction`` → ``"registration"`` / ``"expiration"``
+    - ``nameservers[].ldhName`` → authoritative name servers
+    """
+    # --- Registrar ---
+    registrar = None
+    for entity in data.get("entities") or []:
+        roles = entity.get("roles") or []
+        if "registrar" in roles:
+            # Try vcardArray first, then handle/fn
+            vcard = entity.get("vcardArray")
+            if vcard and isinstance(vcard, list) and len(vcard) > 1:
+                for prop in vcard[1]:
+                    if isinstance(prop, list) and len(prop) >= 4 and prop[0] == "fn":
+                        registrar = prop[3]
+                        break
+            if not registrar:
+                registrar = entity.get("handle")
+            break
+
+    # --- Dates ---
+    creation_date = None
+    expiration_date = None
+    for event in data.get("events") or []:
+        action = event.get("eventAction")
+        date_str = event.get("eventDate")
+        if action == "registration" and date_str:
+            creation_date = date_str
+        elif action == "expiration" and date_str:
+            expiration_date = date_str
+
+    # --- Name servers ---
+    raw_ns = [
+        ns.get("ldhName")
+        for ns in (data.get("nameservers") or [])
+        if ns.get("ldhName")
+    ]
+
+    return {
+        "registrar": registrar,
+        "creation_date": _normalize_date(creation_date),
+        "expiration_date": _normalize_date(expiration_date),
+        "name_servers": _normalize_name_servers(raw_ns),
+        "lookup_method": "rdap",
+        "error": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# WHOIS lookup (fallback)
+# ---------------------------------------------------------------------------
+
+
+def _do_whois_lookup(domain: str) -> dict[str, Any]:
+    """Run a WHOIS query for *domain* using ``python-whois``.
+
+    Returns:
+        A normalized result dict.  On failure the ``error`` key is set
+        and all data fields are ``None``.
+    """
+    try:
+        import whois  # noqa: PLC0415
+    except ImportError:
+        logger.warning("python-whois not installed; skipping WHOIS fallback")
+        return {**_EMPTY_RESULT, "lookup_method": "whois", "error": "python-whois package not installed"}
+
+    try:
+        w = whois.whois(domain, timeout=8)
+    except Exception as exc:
+        logger.warning("WHOIS lookup failed for %s: %s", domain, exc)
+        return {**_EMPTY_RESULT, "lookup_method": "whois", "error": f"WHOIS lookup failed: {exc}"}
+
+    return {
+        "registrar": w.registrar if w.registrar else None,
+        "creation_date": _normalize_date(w.creation_date),
+        "expiration_date": _normalize_date(w.expiration_date),
+        "name_servers": _normalize_name_servers(w.name_servers),
+        "lookup_method": "whois",
+        "error": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Combined lookup (RDAP first, WHOIS fallback)
+# ---------------------------------------------------------------------------
+
+
+def _do_combined_lookup(domain: str, rdap_servers: list[str]) -> dict[str, Any]:
+    """Try RDAP first, then fall back to WHOIS.
+
+    Called inside the executor thread.
+    """
+    rdap_result = _do_rdap_lookup(domain, rdap_servers)
+    if rdap_result is not None:
+        return rdap_result
+
+    return _do_whois_lookup(domain)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def check_registrar(
+    domain: str,
+    rdap_servers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Query registrar information for *domain* (RDAP primary, WHOIS fallback).
 
     The lookup runs inside a thread with a hard timeout so that a
-    hanging WHOIS server cannot block the entire check pipeline.
+    hanging server cannot block the entire check pipeline.
 
     Args:
         domain: The domain name to look up.
+        rdap_servers: List of RDAP server base URLs.  Rotated round-robin.
+            Defaults to ``["https://rdap.org"]`` if not provided.
 
     Returns:
         A dict with keys:
@@ -50,49 +232,41 @@ def check_registrar(domain: str) -> dict[str, Any]:
             creation_date (str|None): Domain creation date (ISO format).
             expiration_date (str|None): Domain expiration date (ISO format).
             name_servers (list[str]): List of authoritative name servers.
+            lookup_method (str): "rdap" or "whois".
             error (str|None): Error message if the lookup failed.
     """
+    servers = rdap_servers if rdap_servers is not None else _DEFAULT_RDAP_SERVERS
+    future = _lookup_executor.submit(_do_combined_lookup, domain, servers)
     try:
-        import whois  # noqa: PLC0415
-    except ImportError:
-        logger.warning("python-whois not installed; skipping registrar lookup")
-        return {**_EMPTY_RESULT, "error": "python-whois package not installed"}
-
-    future = _whois_executor.submit(_do_whois_lookup, whois, domain)
-    try:
-        return future.result(timeout=_WHOIS_HARD_TIMEOUT)
+        return future.result(timeout=_LOOKUP_HARD_TIMEOUT)
     except FuturesTimeoutError:
         logger.warning(
-            "WHOIS lookup timed out for %s after %ds", domain, _WHOIS_HARD_TIMEOUT
+            "Registrar lookup timed out for %s after %ds", domain, _LOOKUP_HARD_TIMEOUT
         )
         future.cancel()
-        return {**_EMPTY_RESULT, "error": f"WHOIS lookup timed out after {_WHOIS_HARD_TIMEOUT}s"}
+        return {
+            **_EMPTY_RESULT,
+            "lookup_method": "timeout",
+            "error": f"Registrar lookup timed out after {_LOOKUP_HARD_TIMEOUT}s",
+        }
     except Exception as exc:
-        logger.warning("WHOIS lookup failed for %s: %s", domain, exc)
-        return {**_EMPTY_RESULT, "error": f"WHOIS lookup failed: {exc}"}
+        logger.warning("Registrar lookup failed for %s: %s", domain, exc)
+        return {
+            **_EMPTY_RESULT,
+            "lookup_method": "error",
+            "error": f"Registrar lookup failed: {exc}",
+        }
 
 
-def _do_whois_lookup(whois_module: Any, domain: str) -> dict[str, Any]:
-    """Run the actual whois query (called inside the executor thread)."""
-    try:
-        w = whois_module.whois(domain, timeout=8)
-    except Exception as exc:
-        logger.warning("WHOIS lookup failed for %s: %s", domain, exc)
-        return {**_EMPTY_RESULT, "error": f"WHOIS lookup failed: {exc}"}
-
-    return {
-        "registrar": w.registrar if w.registrar else None,
-        "creation_date": _normalize_date(w.creation_date),
-        "expiration_date": _normalize_date(w.expiration_date),
-        "name_servers": _normalize_name_servers(w.name_servers),
-        "error": None,
-    }
+# ---------------------------------------------------------------------------
+# Helpers (shared by both RDAP and WHOIS paths)
+# ---------------------------------------------------------------------------
 
 
 def _normalize_date(value: Any) -> str | None:
-    """Normalize a WHOIS date field to an ISO-format string.
+    """Normalize a date field to an ISO-format string.
 
-    Some TLDs return a list of dates; we take the first one.
+    Some sources return a list of dates; we take the first one.
     """
     if value is None:
         return None
@@ -109,7 +283,7 @@ def _normalize_date(value: Any) -> str | None:
 
 
 def _normalize_name_servers(value: Any) -> list[str]:
-    """Normalize WHOIS name_servers to a sorted, deduplicated lowercase list."""
+    """Normalize name servers to a sorted, deduplicated lowercase list."""
     if value is None:
         return []
 

@@ -133,7 +133,7 @@ def run_domain_check(
     if settings.check_registrar_enabled:
         registrar_result = _run_safe_check(
             "registrar",
-            lambda: check_registrar(domain.hostname),
+            lambda: check_registrar(domain.hostname, settings.get_rdap_servers()),
             dns_errors,
         )
 

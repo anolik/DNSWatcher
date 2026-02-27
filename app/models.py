@@ -467,6 +467,9 @@ class DnsSettings(db.Model):
         db.Integer, default=5, nullable=False
     )
     managed_domains: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+    rdap_servers: db.Mapped[str] = db.mapped_column(
+        db.Text, nullable=False, default=json.dumps(["https://rdap.org"]),
+    )
     updated_at: db.Mapped[datetime | None] = db.mapped_column(
         db.DateTime(timezone=True), nullable=True
     )
@@ -528,6 +531,14 @@ class DnsSettings(db.Model):
         if not self.managed_domains:
             return set()
         return {line.strip().lower() for line in self.managed_domains.splitlines() if line.strip()}
+
+    def get_rdap_servers(self) -> list[str]:
+        """Return the RDAP server list as a Python list."""
+        return _load_json(self.rdap_servers, default=["https://rdap.org"])
+
+    def set_rdap_servers(self, server_list: list[str]) -> None:
+        """Serialise and store *server_list*."""
+        self.rdap_servers = json.dumps(server_list)
 
     def __repr__(self) -> str:
         return (

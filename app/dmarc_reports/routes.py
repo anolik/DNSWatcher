@@ -114,6 +114,12 @@ def _ingest_parsed_report(
         source=source,
         domain_id=domain_id,
         email_subject=subject,
+        policy_published_json=json.dumps({
+            "adkim": parsed.get("published_adkim", ""),
+            "aspf": parsed.get("published_aspf", ""),
+            "pct": parsed.get("published_pct"),
+            "sp": parsed.get("published_sp", ""),
+        }) if parsed.get("published_adkim") is not None else None,
     )
     db.session.add(report)
 
@@ -310,6 +316,592 @@ def _top_failing_ips(domain_filter: str = "", limit: int = 10) -> list[dict]:
     return sorted_ips[:limit]
 
 
+def _stats_by_envelope_to(domain_filter: str = "", limit: int = 20) -> list[dict]:
+    """Aggregate DMARC record statistics grouped by envelope_to (destination domain).
+
+    Args:
+        domain_filter: Optional policy_domain to filter by.
+        limit: Maximum number of destination domains to return.
+
+    Returns:
+        List of dicts with envelope_to, total_count, pass_count, fail_count,
+        pass_rate keys, sorted by total_count descending.
+    """
+    query = db.select(DmarcReport.records_json)
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+
+    rows = db.session.execute(query).scalars().all()
+
+    dest_stats: dict[str, dict] = {}
+    for raw in rows:
+        if not raw:
+            continue
+        try:
+            records = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for rec in records:
+            envelope_to = rec.get("envelope_to", "").strip()
+            if not envelope_to:
+                continue
+            count = rec.get("count", 0)
+            dkim = rec.get("dkim", "")
+            spf = rec.get("spf", "")
+            is_pass = dkim == "pass" and spf == "pass"
+
+            if envelope_to not in dest_stats:
+                dest_stats[envelope_to] = {
+                    "envelope_to": envelope_to,
+                    "total_count": 0,
+                    "pass_count": 0,
+                    "fail_count": 0,
+                }
+            dest_stats[envelope_to]["total_count"] += count
+            if is_pass:
+                dest_stats[envelope_to]["pass_count"] += count
+            else:
+                dest_stats[envelope_to]["fail_count"] += count
+
+    # Compute pass rates
+    for stats in dest_stats.values():
+        total = stats["total_count"]
+        stats["pass_rate"] = round(stats["pass_count"] / total * 100, 1) if total > 0 else 0.0
+
+    sorted_dests = sorted(dest_stats.values(), key=lambda x: x["total_count"], reverse=True)
+    return sorted_dests[:limit]
+
+
+def _distinct_envelope_to_domains(domain_filter: str = "") -> list[str]:
+    """Return distinct envelope_to values from all DMARC records.
+
+    Args:
+        domain_filter: Optional policy_domain to filter by.
+
+    Returns:
+        Sorted list of unique envelope_to domain strings.
+    """
+    query = db.select(DmarcReport.records_json)
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+
+    rows = db.session.execute(query).scalars().all()
+
+    destinations: set[str] = set()
+    for raw in rows:
+        if not raw:
+            continue
+        try:
+            records = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for rec in records:
+            envelope_to = rec.get("envelope_to", "").strip()
+            if envelope_to:
+                destinations.add(envelope_to)
+
+    return sorted(destinations)
+
+
+def _load_all_records(domain_filter: str = "") -> list[dict]:
+    """Load and parse all records_json entries for analytics."""
+    query = db.select(DmarcReport.records_json)
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+    rows = db.session.execute(query).scalars().all()
+    all_records = []
+    for raw in rows:
+        if not raw:
+            continue
+        try:
+            records = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        all_records.extend(records)
+    return all_records
+
+
+def _failure_mode_breakdown(domain_filter: str = "") -> dict:
+    """Categorize failures into distinct modes."""
+    all_records = _load_all_records(domain_filter)
+    total_pass = 0
+    total_fail = 0
+    dkim_only_fail = 0
+    spf_only_fail = 0
+    both_fail = 0
+    forwarding = 0
+    mailing_list = 0
+    sampled_out = 0
+    local_policy = 0
+
+    for rec in all_records:
+        count = rec.get("count", 0)
+        dkim = rec.get("dkim", "")
+        spf = rec.get("spf", "")
+        override = rec.get("override_reason", "")
+        is_pass = dkim == "pass" and spf == "pass"
+
+        if is_pass:
+            total_pass += count
+        else:
+            total_fail += count
+            if dkim == "pass" and spf != "pass":
+                spf_only_fail += count
+            elif dkim != "pass" and spf == "pass":
+                dkim_only_fail += count
+            else:
+                both_fail += count
+
+        if override in ("forwarded", "trusted_forwarder"):
+            forwarding += count
+        elif override == "mailing_list":
+            mailing_list += count
+        elif override == "sampled_out":
+            sampled_out += count
+        elif override == "local_policy":
+            local_policy += count
+
+    true_fail = total_fail - forwarding - mailing_list
+    if true_fail < 0:
+        true_fail = 0
+
+    return {
+        "dkim_only_fail": dkim_only_fail,
+        "spf_only_fail": spf_only_fail,
+        "both_fail": both_fail,
+        "forwarding": forwarding,
+        "mailing_list": mailing_list,
+        "sampled_out": sampled_out,
+        "local_policy": local_policy,
+        "total_pass": total_pass,
+        "total_fail": total_fail,
+        "true_fail": true_fail,
+    }
+
+
+def _override_stats(domain_filter: str = "") -> list[dict]:
+    """Count records by override reason type."""
+    all_records = _load_all_records(domain_filter)
+    reason_counts: dict[str, int] = {}
+    total = 0
+
+    for rec in all_records:
+        override = rec.get("override_reason", "")
+        if not override:
+            continue
+        count = rec.get("count", 0)
+        reason_counts[override] = reason_counts.get(override, 0) + count
+        total += count
+
+    result = []
+    for reason, count in sorted(reason_counts.items(), key=lambda x: x[1], reverse=True):
+        result.append({
+            "reason": reason,
+            "count": count,
+            "percentage": round(count / total * 100, 1) if total > 0 else 0.0,
+        })
+    return result
+
+
+def _stats_by_dkim_selector(domain_filter: str = "", limit: int = 20) -> list[dict]:
+    """Per-selector pass rates from all_dkim_results."""
+    all_records = _load_all_records(domain_filter)
+    selector_stats: dict[str, dict] = {}
+
+    for rec in all_records:
+        count = rec.get("count", 0)
+        for dkim_entry in rec.get("all_dkim_results", []):
+            selector = dkim_entry.get("selector") or "unknown"
+            domain = dkim_entry.get("domain") or ""
+            result = dkim_entry.get("result", "")
+            key = f"{selector}|{domain}"
+
+            if key not in selector_stats:
+                selector_stats[key] = {
+                    "selector": selector,
+                    "domain": domain,
+                    "total": 0,
+                    "pass_count": 0,
+                    "fail_count": 0,
+                }
+            selector_stats[key]["total"] += count
+            if result == "pass":
+                selector_stats[key]["pass_count"] += count
+            else:
+                selector_stats[key]["fail_count"] += count
+
+    result_list = list(selector_stats.values())
+    for s in result_list:
+        s["pass_rate"] = round(s["pass_count"] / s["total"] * 100, 1) if s["total"] > 0 else 0.0
+
+    result_list.sort(key=lambda x: x["total"], reverse=True)
+    return result_list[:limit]
+
+
+def _alignment_analysis(domain_filter: str = "") -> list[dict]:
+    """Identify envelope_from vs header_from mismatches."""
+    all_records = _load_all_records(domain_filter)
+    alignment_stats: dict[str, dict] = {}
+
+    for rec in all_records:
+        envelope_from = rec.get("envelope_from", "").strip()
+        header_from = rec.get("header_from", "").strip()
+        if not envelope_from and not header_from:
+            continue
+        count = rec.get("count", 0)
+        spf = rec.get("spf", "")
+        key = f"{envelope_from}|{header_from}"
+
+        if key not in alignment_stats:
+            aligned = (
+                envelope_from == header_from
+                or envelope_from.endswith("." + header_from)
+                or header_from.endswith("." + envelope_from)
+                or not envelope_from
+            )
+            alignment_stats[key] = {
+                "envelope_from": envelope_from or "(empty)",
+                "header_from": header_from or "(empty)",
+                "count": 0,
+                "aligned": aligned,
+                "spf_pass": 0,
+                "total": 0,
+            }
+        alignment_stats[key]["count"] += count
+        alignment_stats[key]["total"] += count
+        if spf == "pass":
+            alignment_stats[key]["spf_pass"] += count
+
+    result_list = list(alignment_stats.values())
+    for a in result_list:
+        a["spf_pass_rate"] = round(a["spf_pass"] / a["total"] * 100, 1) if a["total"] > 0 else 0.0
+
+    result_list.sort(key=lambda x: x["count"], reverse=True)
+    return result_list[:20]
+
+
+def _stats_by_subdomain(domain_filter: str = "", limit: int = 20) -> list[dict]:
+    """Group records by subdomain of header_from relative to policy_domain."""
+    query = db.select(DmarcReport.policy_domain, DmarcReport.records_json)
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+
+    rows = db.session.execute(query).all()
+    subdomain_stats: dict[str, dict] = {}
+
+    for policy_domain, raw in rows:
+        if not raw:
+            continue
+        try:
+            records = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for rec in records:
+            header_from = rec.get("header_from", "").strip()
+            count = rec.get("count", 0)
+            dkim = rec.get("dkim", "")
+            spf = rec.get("spf", "")
+            is_pass = dkim == "pass" and spf == "pass"
+
+            if header_from == policy_domain:
+                subdomain = "(root)"
+            elif header_from.endswith("." + policy_domain):
+                subdomain = header_from[: -(len(policy_domain) + 1)]
+            else:
+                subdomain = header_from
+
+            if subdomain not in subdomain_stats:
+                subdomain_stats[subdomain] = {
+                    "subdomain": subdomain,
+                    "total": 0,
+                    "pass_count": 0,
+                    "fail_count": 0,
+                }
+            subdomain_stats[subdomain]["total"] += count
+            if is_pass:
+                subdomain_stats[subdomain]["pass_count"] += count
+            else:
+                subdomain_stats[subdomain]["fail_count"] += count
+
+    result_list = list(subdomain_stats.values())
+    for s in result_list:
+        s["pass_rate"] = round(s["pass_count"] / s["total"] * 100, 1) if s["total"] > 0 else 0.0
+
+    result_list.sort(key=lambda x: x["total"], reverse=True)
+    return result_list[:limit]
+
+
+def _new_disappeared_ips(domain_filter: str = "", days_recent: int = 7, days_previous: int = 7) -> dict:
+    """Compare IPs between recent and previous period."""
+    now = datetime.now(timezone.utc)
+    recent_start = now - timedelta(days=days_recent)
+    previous_start = recent_start - timedelta(days=days_previous)
+
+    def _collect_ips(start: datetime, end: datetime) -> dict[str, dict]:
+        query = db.select(DmarcReport.records_json).where(
+            DmarcReport.begin_date >= start,
+            DmarcReport.begin_date < end,
+        )
+        if domain_filter:
+            query = query.where(DmarcReport.policy_domain == domain_filter)
+        rows = db.session.execute(query).scalars().all()
+
+        ip_data: dict[str, dict] = {}
+        for raw in rows:
+            if not raw:
+                continue
+            try:
+                records = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for rec in records:
+                ip = rec.get("source_ip", "")
+                count = rec.get("count", 0)
+                dkim = rec.get("dkim", "")
+                spf = rec.get("spf", "")
+                if ip not in ip_data:
+                    ip_data[ip] = {"ip": ip, "count": 0, "dkim_pass": 0, "spf_pass": 0}
+                ip_data[ip]["count"] += count
+                if dkim == "pass":
+                    ip_data[ip]["dkim_pass"] += count
+                if spf == "pass":
+                    ip_data[ip]["spf_pass"] += count
+        return ip_data
+
+    recent_ips = _collect_ips(recent_start, now)
+    previous_ips = _collect_ips(previous_start, recent_start)
+
+    new_ips = []
+    for ip, data in recent_ips.items():
+        if ip not in previous_ips:
+            new_ips.append({
+                "ip": ip,
+                "count": data["count"],
+                "dkim": "pass" if data["dkim_pass"] > data["count"] // 2 else "fail",
+                "spf": "pass" if data["spf_pass"] > data["count"] // 2 else "fail",
+                "first_seen": "recent",
+            })
+
+    disappeared_ips = []
+    for ip, data in previous_ips.items():
+        if ip not in recent_ips:
+            disappeared_ips.append({
+                "ip": ip,
+                "last_count": data["count"],
+                "last_seen": "previous",
+            })
+
+    new_ips.sort(key=lambda x: x["count"], reverse=True)
+    disappeared_ips.sort(key=lambda x: x["last_count"], reverse=True)
+
+    return {
+        "new_ips": new_ips[:20],
+        "disappeared_ips": disappeared_ips[:20],
+        "period_recent": f"{recent_start.strftime('%Y-%m-%d')} to {now.strftime('%Y-%m-%d')}",
+        "period_previous": f"{previous_start.strftime('%Y-%m-%d')} to {recent_start.strftime('%Y-%m-%d')}",
+    }
+
+
+def _classify_sending_sources(domain_filter: str = "", limit: int = 30) -> list[dict]:
+    """Classify top source IPs via PTR lookup."""
+    from app.dmarc_reports.source_classifier import classify_sources
+
+    all_records = _load_all_records(domain_filter)
+    ip_stats: dict[str, dict] = {}
+
+    for rec in all_records:
+        ip = rec.get("source_ip", "")
+        count = rec.get("count", 0)
+        dkim = rec.get("dkim", "")
+        spf = rec.get("spf", "")
+        is_pass = dkim == "pass" and spf == "pass"
+
+        if ip not in ip_stats:
+            ip_stats[ip] = {"ip": ip, "count": 0, "pass_count": 0, "fail_count": 0}
+        ip_stats[ip]["count"] += count
+        if is_pass:
+            ip_stats[ip]["pass_count"] += count
+        else:
+            ip_stats[ip]["fail_count"] += count
+
+    # Sort by total count, take top N
+    top_ips = sorted(ip_stats.values(), key=lambda x: x["count"], reverse=True)[:limit]
+
+    if not top_ips:
+        return []
+
+    # PTR classify
+    ip_list = [entry["ip"] for entry in top_ips]
+    classifications = classify_sources(ip_list, max_ips=limit)
+
+    result = []
+    for entry in top_ips:
+        cls = classifications.get(entry["ip"], {})
+        result.append({
+            "ip": entry["ip"],
+            "count": entry["count"],
+            "pass_count": entry["pass_count"],
+            "fail_count": entry["fail_count"],
+            "provider": cls.get("provider"),
+            "category": cls.get("category", "unknown"),
+            "ptr": cls.get("ptr"),
+        })
+    return result
+
+
+def _bimi_readiness(domain_filter: str = "") -> list[dict]:
+    """Per-domain BIMI readiness based on DMARC report data."""
+    query = db.select(
+        DmarcReport.policy_domain,
+        db.func.sum(DmarcReport.total_messages).label("total"),
+        db.func.sum(DmarcReport.pass_count).label("passes"),
+        DmarcReport.policy_published_json,
+    ).group_by(DmarcReport.policy_domain)
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+
+    rows = db.session.execute(query).all()
+    result = []
+
+    for row in rows:
+        total = row.total or 0
+        passes = row.passes or 0
+        pass_rate = round(passes / total * 100, 1) if total > 0 else 0.0
+
+        policy_data = {}
+        if row.policy_published_json:
+            try:
+                policy_data = json.loads(row.policy_published_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        policy = policy_data.get("p", "none")
+        pct = policy_data.get("pct")
+
+        issues = []
+        if pass_rate < 95:
+            issues.append(f"Pass rate {pass_rate}% < 95%")
+        if policy not in ("quarantine", "reject"):
+            issues.append(f"Policy is '{policy}' (need quarantine or reject)")
+        if pct is not None and pct < 100:
+            issues.append(f"pct={pct} (need 100)")
+
+        result.append({
+            "domain": row.policy_domain,
+            "pass_rate": pass_rate,
+            "policy": policy,
+            "pct": pct,
+            "bimi_ready": len(issues) == 0,
+            "issues": issues,
+        })
+
+    result.sort(key=lambda x: (not x["bimi_ready"], -x["pass_rate"]))
+    return result
+
+
+def _multi_domain_comparison() -> list[dict]:
+    """Side-by-side DMARC posture for all monitored domains."""
+    query = db.select(
+        DmarcReport.policy_domain,
+        db.func.sum(DmarcReport.total_messages).label("total"),
+        db.func.sum(DmarcReport.pass_count).label("passes"),
+        db.func.sum(DmarcReport.fail_count).label("fails"),
+    ).group_by(DmarcReport.policy_domain).order_by(
+        db.func.sum(DmarcReport.total_messages).desc()
+    )
+
+    rows = db.session.execute(query).all()
+    result = []
+
+    for row in rows:
+        total = row.total or 0
+        passes = row.passes or 0
+        pass_rate = round(passes / total * 100, 1) if total > 0 else 0.0
+
+        # Get latest policy published
+        latest = db.session.execute(
+            db.select(DmarcReport.policy_published_json)
+            .where(DmarcReport.policy_domain == row.policy_domain)
+            .where(DmarcReport.policy_published_json.isnot(None))
+            .order_by(DmarcReport.begin_date.desc())
+            .limit(1)
+        ).scalar()
+
+        policy_data = {}
+        if latest:
+            try:
+                policy_data = json.loads(latest)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        result.append({
+            "domain": row.policy_domain,
+            "total_messages": total,
+            "pass_rate": pass_rate,
+            "policy": policy_data.get("p", "—"),
+            "pct": policy_data.get("pct"),
+            "adkim": policy_data.get("adkim", "—"),
+            "aspf": policy_data.get("aspf", "—"),
+        })
+    return result
+
+
+def _check_pass_rate_alerts(domain_filter: str = "") -> list[dict]:
+    """Detect pass rate drops between periods."""
+    now = datetime.now(timezone.utc)
+    current_start = now - timedelta(days=7)
+    previous_start = current_start - timedelta(days=7)
+
+    def _period_rates(start: datetime, end: datetime) -> dict[str, float]:
+        query = db.select(
+            DmarcReport.policy_domain,
+            db.func.sum(DmarcReport.total_messages).label("total"),
+            db.func.sum(DmarcReport.pass_count).label("passes"),
+        ).where(
+            DmarcReport.begin_date >= start,
+            DmarcReport.begin_date < end,
+        ).group_by(DmarcReport.policy_domain)
+        if domain_filter:
+            query = query.where(DmarcReport.policy_domain == domain_filter)
+
+        rows = db.session.execute(query).all()
+        rates = {}
+        for row in rows:
+            total = row.total or 0
+            if total > 0:
+                rates[row.policy_domain] = round((row.passes or 0) / total * 100, 1)
+        return rates
+
+    current_rates = _period_rates(current_start, now)
+    previous_rates = _period_rates(previous_start, current_start)
+
+    alerts = []
+    for domain, current_rate in current_rates.items():
+        previous_rate = previous_rates.get(domain)
+        if previous_rate is not None:
+            drop = round(previous_rate - current_rate, 1)
+            if drop > 5 or current_rate < 90:
+                severity = "critical" if (drop > 15 or current_rate < 70) else "warning"
+                alerts.append({
+                    "domain": domain,
+                    "current_rate": current_rate,
+                    "previous_rate": previous_rate,
+                    "drop": drop,
+                    "severity": severity,
+                })
+        elif current_rate < 90:
+            alerts.append({
+                "domain": domain,
+                "current_rate": current_rate,
+                "previous_rate": None,
+                "drop": 0,
+                "severity": "warning",
+            })
+
+    alerts.sort(key=lambda x: (-x.get("drop", 0), x["current_rate"]))
+    return alerts
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -326,6 +918,56 @@ _SORTABLE_COLUMNS: dict[str, any] = {
     "email_subject": DmarcReport.email_subject,
 }
 
+_AGG_SORTABLE_COLUMNS: dict[str, any] = {
+    "policy_domain": DmarcReport.policy_domain,
+    "report_count": db.func.count(DmarcReport.id),
+    "earliest_date": db.func.min(DmarcReport.begin_date),
+    "total_messages": db.func.sum(DmarcReport.total_messages),
+    "pass_count": db.func.sum(DmarcReport.pass_count),
+    "fail_count": db.func.sum(DmarcReport.fail_count),
+}
+
+
+class _AggPagination:
+    """Pagination-compatible object for aggregate (non-model) queries.
+
+    Flask-SQLAlchemy's ``db.paginate()`` calls ``.scalars()`` internally,
+    which strips grouped Row objects to just the first column.  This helper
+    performs the pagination manually and exposes the same interface that the
+    Jinja ``pagination`` macro expects.
+    """
+
+    def __init__(self, items: list, total: int, page: int, per_page: int) -> None:
+        self.items = items
+        self.total = total
+        self.page = page
+        self.per_page = per_page
+        self.pages: int = max(1, -(-total // per_page)) if total else 1
+        self.has_prev: bool = page > 1
+        self.has_next: bool = page < self.pages
+        self.prev_num: int | None = page - 1 if self.has_prev else None
+        self.next_num: int | None = page + 1 if self.has_next else None
+
+    def iter_pages(
+        self,
+        left_edge: int = 2,
+        right_edge: int = 2,
+        left_current: int = 2,
+        right_current: int = 2,
+    ):
+        """Yield page numbers with ``None`` gaps for ellipsis."""
+        last = 0
+        for num in range(1, self.pages + 1):
+            if (
+                num <= left_edge
+                or (self.page - left_current <= num <= self.page + right_current)
+                or num > self.pages - right_edge
+            ):
+                if last + 1 != num:
+                    yield None
+                yield num
+                last = num
+
 
 @bp.route("/", methods=["GET"])
 @login_required
@@ -339,26 +981,50 @@ def index():
     """
     domain_filter: str = request.args.get("domain", "").strip()
     org_filter: str = request.args.get("org", "").strip()
+    dest_filter: str = request.args.get("dest", "").strip()
     page: int = request.args.get("page", 1, type=int)
-    sort_col: str = request.args.get("sort", "begin_date").strip()
+    sort_col: str = request.args.get("sort", "earliest_date").strip()
     sort_order: str = request.args.get("order", "desc").strip().lower()
 
-    # Validate sort parameters
-    if sort_col not in _SORTABLE_COLUMNS:
-        sort_col = "begin_date"
+    # Validate sort parameters for aggregated view
+    if sort_col not in _AGG_SORTABLE_COLUMNS:
+        sort_col = "earliest_date"
     if sort_order not in ("asc", "desc"):
         sort_order = "desc"
 
-    column = _SORTABLE_COLUMNS[sort_col]
-    order_clause = column.asc() if sort_order == "asc" else column.desc()
+    sort_expr = _AGG_SORTABLE_COLUMNS[sort_col]
+    order_clause = sort_expr.asc() if sort_order == "asc" else sort_expr.desc()
 
-    query = db.select(DmarcReport).order_by(order_clause)
+    # Aggregated query: one row per policy_domain
+    query = db.select(
+        DmarcReport.policy_domain,
+        db.func.count(DmarcReport.id).label("report_count"),
+        db.func.min(DmarcReport.begin_date).label("earliest_date"),
+        db.func.max(DmarcReport.end_date).label("latest_date"),
+        db.func.sum(DmarcReport.total_messages).label("total_messages"),
+        db.func.sum(DmarcReport.pass_count).label("pass_count"),
+        db.func.sum(DmarcReport.fail_count).label("fail_count"),
+    ).group_by(DmarcReport.policy_domain)
+
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
     if org_filter:
         query = query.where(DmarcReport.org_name == org_filter)
+    if dest_filter:
+        query = query.where(DmarcReport.records_json.contains(dest_filter))
 
-    pager = db.paginate(query, page=page, per_page=20, error_out=False)
+    query = query.order_by(order_clause)
+
+    # Manual pagination for aggregate query (db.paginate calls .scalars()
+    # which strips Row objects to just the first column).
+    per_page = 20
+    total = db.session.execute(
+        db.select(db.func.count()).select_from(query.subquery())
+    ).scalar()
+    items = db.session.execute(
+        query.limit(per_page).offset((page - 1) * per_page)
+    ).all()
+    pager = _AggPagination(items=items, total=total, page=page, per_page=per_page)
 
     # Distinct policy_domains for the filter dropdown
     domains_result = db.session.execute(
@@ -374,9 +1040,25 @@ def index():
         .order_by(DmarcReport.org_name)
     ).scalars().all()
 
-    # Analytics: summary stats and top failing IPs
+    # Distinct envelope_to destinations for the filter dropdown
+    dest_domains = _distinct_envelope_to_domains(domain_filter)
+
+    # Analytics: summary stats, top failing IPs, and destination stats
     summary_stats = _compute_summary_stats(domain_filter)
     top_ips = _top_failing_ips(domain_filter)
+    dest_stats = _stats_by_envelope_to(domain_filter)
+
+    # Extended analytics
+    failure_modes = _failure_mode_breakdown(domain_filter)
+    override_stats = _override_stats(domain_filter)
+    selector_stats = _stats_by_dkim_selector(domain_filter)
+    alignment_data = _alignment_analysis(domain_filter)
+    subdomain_stats = _stats_by_subdomain(domain_filter)
+    ip_changes = _new_disappeared_ips(domain_filter)
+    source_classes = _classify_sending_sources(domain_filter)
+    bimi_readiness = _bimi_readiness(domain_filter)
+    domain_comparison = _multi_domain_comparison()
+    pass_rate_alerts = _check_pass_rate_alerts(domain_filter)
 
     return render_template(
         "dmarc_reports/index.html",
@@ -384,11 +1066,24 @@ def index():
         domains=domains_result,
         domain_filter=domain_filter,
         org_filter=org_filter,
+        dest_filter=dest_filter,
         orgs=orgs_result,
+        dest_domains=dest_domains,
         sort_col=sort_col,
         sort_order=sort_order,
         summary_stats=summary_stats,
         top_ips=top_ips,
+        dest_stats=dest_stats,
+        failure_modes=failure_modes,
+        override_stats=override_stats,
+        selector_stats=selector_stats,
+        alignment_data=alignment_data,
+        subdomain_stats=subdomain_stats,
+        ip_changes=ip_changes,
+        source_classes=source_classes,
+        bimi_readiness=bimi_readiness,
+        domain_comparison=domain_comparison,
+        pass_rate_alerts=pass_rate_alerts,
     )
 
 
@@ -516,74 +1211,266 @@ def detail(id: int):
     """
     report = db.get_or_404(DmarcReport, id)
     records = report.get_records()
+    policy_published = report.get_policy_published()
 
     return render_template(
         "dmarc_reports/detail.html",
         report=report,
         records=records,
+        policy_published=policy_published,
+    )
+
+
+@bp.route("/domain/<path:domain>", methods=["GET"])
+@login_required
+def domain_detail(domain: str):
+    """Show all DMARC reports for a specific policy domain.
+
+    Args:
+        domain: The policy_domain to display reports for.
+    """
+    org_filter: str = request.args.get("org", "").strip()
+    sort_col: str = request.args.get("sort", "begin_date").strip()
+    sort_order: str = request.args.get("order", "desc").strip().lower()
+    page: int = request.args.get("page", 1, type=int)
+
+    query = db.select(DmarcReport).where(
+        DmarcReport.policy_domain == domain
+    )
+    if org_filter:
+        query = query.where(DmarcReport.org_name == org_filter)
+
+    # Sort
+    if sort_col not in _SORTABLE_COLUMNS:
+        sort_col = "begin_date"
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc"
+    column = _SORTABLE_COLUMNS[sort_col]
+    order_clause = column.asc() if sort_order == "asc" else column.desc()
+    query = query.order_by(order_clause)
+
+    pager = db.paginate(query, page=page, per_page=20, error_out=False)
+
+    # Distinct orgs for this domain (filter dropdown)
+    orgs = db.session.execute(
+        db.select(DmarcReport.org_name)
+        .where(DmarcReport.policy_domain == domain)
+        .distinct()
+        .order_by(DmarcReport.org_name)
+    ).scalars().all()
+
+    # Aggregate stats for header card
+    stats = db.session.execute(
+        db.select(
+            db.func.count(DmarcReport.id).label("report_count"),
+            db.func.sum(DmarcReport.total_messages).label("total_messages"),
+            db.func.sum(DmarcReport.pass_count).label("pass_count"),
+            db.func.sum(DmarcReport.fail_count).label("fail_count"),
+            db.func.min(DmarcReport.begin_date).label("earliest"),
+            db.func.max(DmarcReport.end_date).label("latest"),
+        ).where(DmarcReport.policy_domain == domain)
+    ).one()
+
+    # Latest published policy
+    latest_policy_json = db.session.execute(
+        db.select(DmarcReport.policy_published_json)
+        .where(DmarcReport.policy_domain == domain)
+        .where(DmarcReport.policy_published_json.isnot(None))
+        .order_by(DmarcReport.begin_date.desc())
+        .limit(1)
+    ).scalar()
+    policy_published: dict = {}
+    if latest_policy_json:
+        try:
+            policy_published = json.loads(latest_policy_json)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return render_template(
+        "dmarc_reports/domain_detail.html",
+        domain=domain,
+        pager=pager,
+        orgs=orgs,
+        org_filter=org_filter,
+        sort_col=sort_col,
+        sort_order=sort_order,
+        stats=stats,
+        policy_published=policy_published,
+    )
+
+
+@bp.route("/ip/<path:ip>", methods=["GET"])
+@login_required
+def ip_detail(ip: str):
+    """Show all DMARC records associated with a specific source IP.
+
+    Args:
+        ip: Source IP address to look up.
+    """
+    domain_filter: str = request.args.get("domain", "").strip()
+
+    query = db.select(
+        DmarcReport.id,
+        DmarcReport.report_id,
+        DmarcReport.org_name,
+        DmarcReport.policy_domain,
+        DmarcReport.begin_date,
+        DmarcReport.end_date,
+        DmarcReport.records_json,
+    )
+    if domain_filter:
+        query = query.where(DmarcReport.policy_domain == domain_filter)
+
+    rows = db.session.execute(query).all()
+
+    matching_records: list[dict] = []
+    for row in rows:
+        if not row.records_json:
+            continue
+        try:
+            records = json.loads(row.records_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for rec in records:
+            if rec.get("source_ip") == ip:
+                matching_records.append({
+                    **rec,
+                    "report_id": row.report_id,
+                    "report_db_id": row.id,
+                    "org_name": row.org_name,
+                    "policy_domain": row.policy_domain,
+                    "begin_date": row.begin_date,
+                })
+
+    matching_records.sort(key=lambda x: x.get("begin_date") or "", reverse=True)
+
+    # PTR classification for this IP
+    from app.dmarc_reports.source_classifier import classify_sources
+    classification = classify_sources([ip], max_ips=1).get(ip, {})
+
+    # Aggregate stats
+    total_messages = sum(r.get("count", 0) for r in matching_records)
+    pass_count = sum(
+        r.get("count", 0) for r in matching_records
+        if r.get("dkim") == "pass" and r.get("spf") == "pass"
+    )
+
+    return render_template(
+        "dmarc_reports/ip_detail.html",
+        ip=ip,
+        records=matching_records,
+        classification=classification,
+        total_messages=total_messages,
+        pass_count=pass_count,
+        fail_count=total_messages - pass_count,
+        domain_filter=domain_filter,
     )
 
 
 @bp.route("/export", methods=["GET"])
 @login_required
 def export_csv():
-    """Export filtered DMARC reports as a CSV download.
+    """Export DMARC reports as a CSV download.
 
+    Default format is aggregated (one row per policy_domain) matching the
+    index view.  Pass ``?format=detail`` to export individual reports.
     Respects the same domain and org query parameters as the index view.
-    Returns all matching reports (no pagination) as a text/csv response.
     """
     domain_filter: str = request.args.get("domain", "").strip()
     org_filter: str = request.args.get("org", "").strip()
-    sort_col: str = request.args.get("sort", "begin_date").strip()
-    sort_order: str = request.args.get("order", "desc").strip().lower()
-
-    if sort_col not in _SORTABLE_COLUMNS:
-        sort_col = "begin_date"
-    if sort_order not in ("asc", "desc"):
-        sort_order = "desc"
-
-    column = _SORTABLE_COLUMNS[sort_col]
-    order_clause = column.asc() if sort_order == "asc" else column.desc()
-
-    query = db.select(DmarcReport).order_by(order_clause)
-    if domain_filter:
-        query = query.where(DmarcReport.policy_domain == domain_filter)
-    if org_filter:
-        query = query.where(DmarcReport.org_name == org_filter)
-
-    reports = db.session.execute(query).scalars().all()
+    dest_filter: str = request.args.get("dest", "").strip()
+    export_format: str = request.args.get("format", "aggregated").strip().lower()
 
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Header row
-    writer.writerow([
-        "Report ID",
-        "Org Name",
-        "Policy Domain",
-        "Begin Date",
-        "End Date",
-        "Total Messages",
-        "Pass",
-        "Fail",
-        "Source",
-        "Email Subject",
-    ])
+    if export_format == "detail":
+        # Per-report export (original behaviour)
+        sort_col: str = request.args.get("sort", "begin_date").strip()
+        sort_order: str = request.args.get("order", "desc").strip().lower()
+        if sort_col not in _SORTABLE_COLUMNS:
+            sort_col = "begin_date"
+        if sort_order not in ("asc", "desc"):
+            sort_order = "desc"
+        column = _SORTABLE_COLUMNS[sort_col]
+        order_clause = column.asc() if sort_order == "asc" else column.desc()
 
-    # Data rows
-    for report in reports:
+        query = db.select(DmarcReport).order_by(order_clause)
+        if domain_filter:
+            query = query.where(DmarcReport.policy_domain == domain_filter)
+        if org_filter:
+            query = query.where(DmarcReport.org_name == org_filter)
+        if dest_filter:
+            query = query.where(DmarcReport.records_json.contains(dest_filter))
+
+        reports = db.session.execute(query).scalars().all()
+
         writer.writerow([
-            report.report_id,
-            report.org_name,
-            report.policy_domain,
-            report.begin_date.strftime("%Y-%m-%d") if report.begin_date else "",
-            report.end_date.strftime("%Y-%m-%d") if report.end_date else "",
-            report.total_messages,
-            report.pass_count,
-            report.fail_count,
-            report.source,
-            report.email_subject or "",
+            "Report ID", "Org Name", "Policy Domain", "Begin Date",
+            "End Date", "Total Messages", "Pass", "Fail", "Source",
+            "Email Subject",
         ])
+        for report in reports:
+            writer.writerow([
+                report.report_id,
+                report.org_name,
+                report.policy_domain,
+                report.begin_date.strftime("%Y-%m-%d") if report.begin_date else "",
+                report.end_date.strftime("%Y-%m-%d") if report.end_date else "",
+                report.total_messages,
+                report.pass_count,
+                report.fail_count,
+                report.source,
+                report.email_subject or "",
+            ])
+    else:
+        # Aggregated export (one row per policy_domain)
+        sort_col_agg: str = request.args.get("sort", "earliest_date").strip()
+        sort_order_agg: str = request.args.get("order", "desc").strip().lower()
+        if sort_col_agg not in _AGG_SORTABLE_COLUMNS:
+            sort_col_agg = "earliest_date"
+        if sort_order_agg not in ("asc", "desc"):
+            sort_order_agg = "desc"
+        sort_expr = _AGG_SORTABLE_COLUMNS[sort_col_agg]
+        order_clause = sort_expr.asc() if sort_order_agg == "asc" else sort_expr.desc()
+
+        query = db.select(
+            DmarcReport.policy_domain,
+            db.func.count(DmarcReport.id).label("report_count"),
+            db.func.min(DmarcReport.begin_date).label("earliest_date"),
+            db.func.max(DmarcReport.end_date).label("latest_date"),
+            db.func.sum(DmarcReport.total_messages).label("total_messages"),
+            db.func.sum(DmarcReport.pass_count).label("pass_count"),
+            db.func.sum(DmarcReport.fail_count).label("fail_count"),
+        ).group_by(DmarcReport.policy_domain)
+
+        if domain_filter:
+            query = query.where(DmarcReport.policy_domain == domain_filter)
+        if org_filter:
+            query = query.where(DmarcReport.org_name == org_filter)
+        if dest_filter:
+            query = query.where(DmarcReport.records_json.contains(dest_filter))
+        query = query.order_by(order_clause)
+
+        rows = db.session.execute(query).all()
+
+        writer.writerow([
+            "Policy Domain", "Reports", "Earliest Date", "Latest Date",
+            "Total Messages", "Pass", "Fail", "Pass Rate (%)",
+        ])
+        for row in rows:
+            total = row.total_messages or 0
+            pass_rate = round(row.pass_count / total * 100, 1) if total > 0 else 0
+            writer.writerow([
+                row.policy_domain,
+                row.report_count,
+                row.earliest_date.strftime("%Y-%m-%d") if row.earliest_date else "",
+                row.latest_date.strftime("%Y-%m-%d") if row.latest_date else "",
+                total,
+                row.pass_count or 0,
+                row.fail_count or 0,
+                pass_rate,
+            ])
 
     csv_content = output.getvalue()
     output.close()

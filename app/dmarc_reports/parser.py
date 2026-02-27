@@ -124,6 +124,11 @@ def _parse_xml(xml_bytes: bytes) -> dict | None:
     # ------------------------------------------------------------------
     policy = feedback.find("policy_published")
     policy_domain = _text(policy, "domain") or "" if policy is not None else ""
+    published_adkim = _text(policy, "adkim") or "" if policy is not None else ""
+    published_aspf = _text(policy, "aspf") or "" if policy is not None else ""
+    published_pct_str = _text(policy, "pct") if policy is not None else None
+    published_pct = int(published_pct_str) if published_pct_str is not None else None
+    published_sp = _text(policy, "sp") or "" if policy is not None else ""
 
     # ------------------------------------------------------------------
     # record[]
@@ -142,27 +147,50 @@ def _parse_xml(xml_bytes: bytes) -> dict | None:
         dkim_eval = _text(policy_eval, "dkim") or "fail" if policy_eval is not None else "fail"
         spf_eval = _text(policy_eval, "spf") or "fail" if policy_eval is not None else "fail"
 
+        override_reason = ""
+        override_comment = ""
+        if policy_eval is not None:
+            reason_elem = policy_eval.find("reason")
+            if reason_elem is not None:
+                override_reason = _text(reason_elem, "type") or ""
+                override_comment = _text(reason_elem, "comment") or ""
+
         # identifiers
         identifiers = record.find("identifiers")
         header_from = _text(identifiers, "header_from") or "" if identifiers is not None else ""
+        envelope_to = _text(identifiers, "envelope_to") or "" if identifiers is not None else ""
+        envelope_from = _text(identifiers, "envelope_from") or "" if identifiers is not None else ""
 
         # auth_results
         auth_results = record.find("auth_results")
         dkim_domain: str | None = None
         dkim_result: str | None = None
+        dkim_selector: str | None = None
+        dkim_result_raw: str | None = None
         spf_domain: str | None = None
         spf_result: str | None = None
+        spf_result_raw: str | None = None
+        spf_scope: str | None = None
+        all_dkim_results: list[dict] = []
 
         if auth_results is not None:
-            dkim_elem = auth_results.find("dkim")
-            if dkim_elem is not None:
-                dkim_domain = _text(dkim_elem, "domain")
-                dkim_result = _text(dkim_elem, "result")
+            for dkim_elem in auth_results.findall("dkim"):
+                d = _text(dkim_elem, "domain")
+                r = _text(dkim_elem, "result")
+                s = _text(dkim_elem, "selector")
+                all_dkim_results.append({"domain": d, "selector": s, "result": r})
+                if dkim_domain is None:  # keep first as primary
+                    dkim_domain = d
+                    dkim_result = r
+                    dkim_selector = s
+                    dkim_result_raw = r
 
             spf_elem = auth_results.find("spf")
             if spf_elem is not None:
                 spf_domain = _text(spf_elem, "domain")
                 spf_result = _text(spf_elem, "result")
+                spf_result_raw = spf_result
+                spf_scope = _text(spf_elem, "scope")
 
         records.append({
             "source_ip": source_ip,
@@ -171,10 +199,19 @@ def _parse_xml(xml_bytes: bytes) -> dict | None:
             "dkim": dkim_eval,
             "spf": spf_eval,
             "header_from": header_from,
+            "envelope_to": envelope_to,
+            "envelope_from": envelope_from,
+            "override_reason": override_reason,
+            "override_comment": override_comment,
             "dkim_domain": dkim_domain,
             "dkim_result": dkim_result,
+            "dkim_selector": dkim_selector,
+            "dkim_result_raw": dkim_result_raw,
+            "all_dkim_results": all_dkim_results,
             "spf_domain": spf_domain,
             "spf_result": spf_result,
+            "spf_result_raw": spf_result_raw,
+            "spf_scope": spf_scope,
         })
 
     return {
@@ -183,6 +220,10 @@ def _parse_xml(xml_bytes: bytes) -> dict | None:
         "policy_domain": policy_domain,
         "begin_date": begin_date,
         "end_date": end_date,
+        "published_adkim": published_adkim,
+        "published_aspf": published_aspf,
+        "published_pct": published_pct,
+        "published_sp": published_sp,
         "records": records,
     }
 

@@ -35,12 +35,20 @@
         <option value="{{ o }}" {% if o == org_filter %}selected{% endif %}>{{ o }}</option>
       {% endfor %}
     </select>
+    <select id="dest-filter" name="dest"
+            class="mica-select text-sm"
+            onchange="this.form.submit()">
+      <option value="">All Destinations</option>
+      {% for d in dest_domains %}
+        <option value="{{ d }}" {% if d == dest_filter %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
   </form>
 
   {# Action buttons #}
   <div class="flex items-center gap-2">
     {# Export CSV #}
-    <a href="{{ url_for('dmarc_reports.export_csv', domain=domain_filter or '', org=org_filter or '', sort=sort_col, order=sort_order) }}"
+    <a href="{{ url_for('dmarc_reports.export_csv', domain=domain_filter or '', org=org_filter or '', dest=dest_filter or '', sort=sort_col, order=sort_order) }}"
        class="btn-secondary">
       <i class="bi bi-download mr-1"></i>Export CSV
     </a>
@@ -60,6 +68,26 @@
   </div>
 
 </div>
+
+{# ── Pass Rate Alerts ── #}
+{% if pass_rate_alerts %}
+<div class="mb-4 space-y-2">
+  {% for alert in pass_rate_alerts %}
+  <div class="flex items-center gap-3 px-4 py-3 rounded-lg border
+              {% if alert.severity == 'critical' %}border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20{% else %}border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20{% endif %}">
+    <i class="bi bi-exclamation-triangle-fill {% if alert.severity == 'critical' %}text-status-danger{% else %}text-status-warning{% endif %}"></i>
+    <div class="text-sm">
+      <span class="font-semibold">{{ alert.domain }}</span>
+      — pass rate
+      <span class="font-bold {% if alert.current_rate < 70 %}text-status-danger{% elif alert.current_rate < 90 %}text-status-warning{% else %}text-status-success{% endif %}">{{ alert.current_rate }}%</span>
+      {% if alert.previous_rate is not none %}
+        (was {{ alert.previous_rate }}%, drop {{ alert.drop }} pp)
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 
 {# ── Summary cards ── #}
 {% if summary_stats and summary_stats.total_reports > 0 %}
@@ -124,11 +152,11 @@
   </div>
 </div>
 
-{# ── Reports table ── #}
+{# ── Reports table (aggregated by policy_domain) ── #}
 <div class="mica-card overflow-hidden">
   <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between">
     <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
-      <i class="bi bi-table mr-1.5"></i>Ingested Reports
+      <i class="bi bi-table mr-1.5"></i>Domains
       {% if pager.total is defined %}
         <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ pager.total }})</span>
       {% endif %}
@@ -139,21 +167,18 @@
     <table class="mica-table">
       <thead>
         <tr>
-          {# Sortable column headers — each links to the same page with sort/order params toggled #}
           {% set cols = [
-            ("begin_date",     "Date Range",    ""),
-            ("org_name",       "Org",           ""),
             ("policy_domain",  "Policy Domain", ""),
-            ("total_messages", "Total",         "text-right"),
+            ("report_count",   "Reports",       "text-right"),
+            ("earliest_date",  "Date Range",    ""),
+            ("total_messages", "Total Messages", "text-right"),
             ("pass_count",     "Pass",          "text-right"),
             ("fail_count",     "Fail",          "text-right"),
-            ("source",         "Source",        ""),
-            ("email_subject",  "Subject",       ""),
           ] %}
           {% for col_key, col_label, col_class in cols %}
             {% set next_order = 'asc' if (sort_col == col_key and sort_order == 'desc') else 'desc' %}
             <th class="{{ col_class }}">
-              <a href="{{ url_for('dmarc_reports.index', sort=col_key, order=next_order, domain=domain_filter or '', org=org_filter or '') }}"
+              <a href="{{ url_for('dmarc_reports.index', sort=col_key, order=next_order, domain=domain_filter or '', org=org_filter or '', dest=dest_filter or '') }}"
                  class="inline-flex items-center gap-1 hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none
                         {% if sort_col == col_key %}text-primary-500 dark:text-primary-400{% endif %}">
                 {{ col_label }}
@@ -165,39 +190,40 @@
               </a>
             </th>
           {% endfor %}
+          <th class="text-right">Pass Rate</th>
           <th></th>
         </tr>
       </thead>
       <tbody>
         {% if pager.items %}
-          {% for report in pager.items %}
+          {% for row in pager.items %}
           <tr>
-            {# Date Range #}
-            <td class="whitespace-nowrap text-sm text-light-content-secondary dark:text-content-secondary">
-              {{ report.begin_date|to_tz("%Y-%m-%d") }}
-              <span class="text-light-content-muted dark:text-content-muted mx-1">&rarr;</span>
-              {{ report.end_date|to_tz("%Y-%m-%d") }}
-            </td>
-
-            {# Org #}
-            <td class="font-medium text-light-content-primary dark:text-content-primary">
-              {{ report.org_name }}
-            </td>
-
             {# Policy Domain #}
             <td>
-              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ report.policy_domain }}</code>
+              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ row.policy_domain }}</code>
+            </td>
+
+            {# Reports count #}
+            <td class="text-right tabular-nums text-light-content-secondary dark:text-content-secondary">
+              {{ row.report_count }}
+            </td>
+
+            {# Date Range #}
+            <td class="whitespace-nowrap text-sm text-light-content-secondary dark:text-content-secondary">
+              {{ row.earliest_date|to_tz("%Y-%m-%d") }}
+              <span class="text-light-content-muted dark:text-content-muted mx-1">&rarr;</span>
+              {{ row.latest_date|to_tz("%Y-%m-%d") }}
             </td>
 
             {# Total messages #}
             <td class="text-right tabular-nums text-light-content-secondary dark:text-content-secondary">
-              {{ report.total_messages }}
+              {{ "{:,}".format(row.total_messages) }}
             </td>
 
             {# Pass count #}
             <td class="text-right">
-              {% if report.pass_count > 0 %}
-                <span class="badge-ok">{{ report.pass_count }}</span>
+              {% if row.pass_count > 0 %}
+                <span class="badge-ok">{{ "{:,}".format(row.pass_count) }}</span>
               {% else %}
                 <span class="text-light-content-muted dark:text-content-muted tabular-nums">0</span>
               {% endif %}
@@ -205,30 +231,24 @@
 
             {# Fail count #}
             <td class="text-right">
-              {% if report.fail_count > 0 %}
-                <span class="badge-critical">{{ report.fail_count }}</span>
+              {% if row.fail_count > 0 %}
+                <span class="badge-critical">{{ "{:,}".format(row.fail_count) }}</span>
               {% else %}
                 <span class="badge-ok">0</span>
               {% endif %}
             </td>
 
-            {# Source #}
-            <td>
-              {% if report.source == 'auto' %}
-                <span class="badge-info">Auto</span>
-              {% else %}
-                <span class="badge-pending">Manual</span>
-              {% endif %}
-            </td>
-
-            {# Email Subject (truncated) #}
-            <td class="text-sm text-light-content-secondary dark:text-content-secondary max-w-[200px] truncate" title="{{ report.email_subject or '' }}">
-              {{ (report.email_subject or '—') | truncate(40) }}
+            {# Pass Rate #}
+            <td class="text-right tabular-nums">
+              {% set rate = (row.pass_count / row.total_messages * 100)|round(1) if row.total_messages > 0 else 0 %}
+              <span class="{% if rate >= 90 %}text-status-success{% elif rate >= 70 %}text-status-warning{% else %}text-status-danger{% endif %}">
+                {{ rate }}%
+              </span>
             </td>
 
             {# Actions #}
             <td class="text-right">
-              <a href="{{ url_for('dmarc_reports.detail', id=report.id) }}"
+              <a href="{{ url_for('dmarc_reports.domain_detail', domain=row.policy_domain) }}"
                  class="text-xs font-medium text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300 transition-colors">
                 View <i class="bi bi-chevron-right text-xs"></i>
               </a>
@@ -237,7 +257,7 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="9" class="text-center text-light-content-muted dark:text-content-muted py-10">
+            <td colspan="8" class="text-center text-light-content-muted dark:text-content-muted py-10">
               <i class="bi bi-inbox text-3xl block mb-2 opacity-40"></i>
               No DMARC reports ingested yet.
             </td>
@@ -251,6 +271,7 @@
   {% set extra = {'sort': sort_col, 'order': sort_order} %}
   {% if domain_filter %}{% set extra = dict(extra, domain=domain_filter) %}{% endif %}
   {% if org_filter %}{% set extra = dict(extra, org=org_filter) %}{% endif %}
+  {% if dest_filter %}{% set extra = dict(extra, dest=dest_filter) %}{% endif %}
   {{ pagination(pager, 'dmarc_reports.index', extra) }}
 
 </div>
@@ -283,7 +304,10 @@
           {% for ip in top_ips %}
           <tr>
             <td>
-              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ ip.source_ip }}</code>
+              <a href="{{ url_for('dmarc_reports.ip_detail', ip=ip.source_ip, domain=domain_filter or '') }}"
+                 class="hover:underline">
+                <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ ip.source_ip }}</code>
+              </a>
             </td>
             <td class="text-right">
               {% if ip.fail_count > 0 %}
@@ -306,6 +330,401 @@
         </tbody>
       </table>
     </div>
+  </div>
+</div>
+{% endif %}
+
+
+{# ── Stats by Destination Domain ── #}
+{% if dest_stats %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('dest-stats-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-envelope-arrow-down mr-1.5"></i>Analysis by Destination Domain
+      <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ dest_stats|length }})</span>
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+
+  <div id="dest-stats-body" class="hidden">
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead>
+          <tr>
+            <th>Destination Domain</th>
+            <th class="text-right">Total Messages</th>
+            <th class="text-right">Pass</th>
+            <th class="text-right">Fail</th>
+            <th class="text-right">Pass Rate</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for dest in dest_stats %}
+          <tr>
+            <td>
+              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ dest.envelope_to }}</code>
+            </td>
+            <td class="text-right tabular-nums text-light-content-secondary dark:text-content-secondary">
+              {{ "{:,}".format(dest.total_count) }}
+            </td>
+            <td class="text-right">
+              {% if dest.pass_count > 0 %}
+                <span class="badge-ok">{{ "{:,}".format(dest.pass_count) }}</span>
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted tabular-nums">0</span>
+              {% endif %}
+            </td>
+            <td class="text-right">
+              {% if dest.fail_count > 0 %}
+                <span class="badge-critical">{{ "{:,}".format(dest.fail_count) }}</span>
+              {% else %}
+                <span class="badge-ok">0</span>
+              {% endif %}
+            </td>
+            <td class="text-right tabular-nums">
+              <span class="{% if dest.pass_rate >= 90 %}text-status-success{% elif dest.pass_rate >= 70 %}text-status-warning{% else %}text-status-danger{% endif %}">
+                {{ dest.pass_rate }}%
+              </span>
+            </td>
+            <td class="text-right">
+              <a href="{{ url_for('dmarc_reports.index', dest=dest.envelope_to, domain=domain_filter or '', org=org_filter or '') }}"
+                 class="text-xs font-medium text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300 transition-colors">
+                Filter <i class="bi bi-funnel text-xs"></i>
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+
+{# ── Failure Mode Breakdown ── #}
+{% if failure_modes and failure_modes.total_fail > 0 %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('failure-modes-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-pie-chart mr-1.5"></i>Failure Mode Breakdown
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+  <div id="failure-modes-body" class="hidden">
+    <div class="p-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+        <div class="rounded-lg border border-light-surface-border/20 dark:border-surface-border/10 bg-gray-50 dark:bg-surface-raised px-3 py-2 text-center">
+          <div class="text-lg font-bold text-status-danger tabular-nums">{{ "{:,}".format(failure_modes.both_fail) }}</div>
+          <div class="text-xs text-light-content-muted dark:text-content-muted">Both Fail</div>
+        </div>
+        <div class="rounded-lg border border-light-surface-border/20 dark:border-surface-border/10 bg-gray-50 dark:bg-surface-raised px-3 py-2 text-center">
+          <div class="text-lg font-bold text-status-warning tabular-nums">{{ "{:,}".format(failure_modes.dkim_only_fail) }}</div>
+          <div class="text-xs text-light-content-muted dark:text-content-muted">DKIM Only Fail</div>
+        </div>
+        <div class="rounded-lg border border-light-surface-border/20 dark:border-surface-border/10 bg-gray-50 dark:bg-surface-raised px-3 py-2 text-center">
+          <div class="text-lg font-bold text-status-warning tabular-nums">{{ "{:,}".format(failure_modes.spf_only_fail) }}</div>
+          <div class="text-xs text-light-content-muted dark:text-content-muted">SPF Only Fail</div>
+        </div>
+        <div class="rounded-lg border border-light-surface-border/20 dark:border-surface-border/10 bg-gray-50 dark:bg-surface-raised px-3 py-2 text-center">
+          <div class="text-lg font-bold text-light-content-primary dark:text-content-primary tabular-nums">{{ "{:,}".format(failure_modes.true_fail) }}</div>
+          <div class="text-xs text-light-content-muted dark:text-content-muted">True Failures</div>
+        </div>
+      </div>
+      {% if failure_modes.forwarding or failure_modes.mailing_list or failure_modes.sampled_out or failure_modes.local_policy %}
+      <div class="text-xs text-light-content-muted dark:text-content-muted flex flex-wrap gap-3">
+        {% if failure_modes.forwarding %}<span><span class="badge-info">Forwarding</span> {{ "{:,}".format(failure_modes.forwarding) }}</span>{% endif %}
+        {% if failure_modes.mailing_list %}<span><span class="badge-info">Mailing List</span> {{ "{:,}".format(failure_modes.mailing_list) }}</span>{% endif %}
+        {% if failure_modes.sampled_out %}<span><span class="badge-warning">Sampled Out</span> {{ "{:,}".format(failure_modes.sampled_out) }}</span>{% endif %}
+        {% if failure_modes.local_policy %}<span><span class="badge-warning">Local Policy</span> {{ "{:,}".format(failure_modes.local_policy) }}</span>{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Policy Override Analysis ── #}
+{% if override_stats %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('override-stats-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-shield-exclamation mr-1.5"></i>Policy Override Analysis
+      <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ override_stats|length }})</span>
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+  <div id="override-stats-body" class="hidden">
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead><tr><th>Override Reason</th><th class="text-right">Count</th><th class="text-right">% of Total</th></tr></thead>
+        <tbody>
+          {% for o in override_stats %}
+          <tr>
+            <td>
+              {% if o.reason in ('forwarded', 'trusted_forwarder', 'mailing_list') %}
+                <span class="badge-info">{{ o.reason }}</span>
+              {% elif o.reason in ('sampled_out', 'local_policy') %}
+                <span class="badge-warning">{{ o.reason }}</span>
+              {% else %}
+                <span class="badge-pending">{{ o.reason }}</span>
+              {% endif %}
+            </td>
+            <td class="text-right tabular-nums">{{ "{:,}".format(o.count) }}</td>
+            <td class="text-right tabular-nums text-light-content-secondary dark:text-content-secondary">{{ o.percentage }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── DKIM Selector Analysis ── #}
+{% if selector_stats %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('selector-stats-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-key mr-1.5"></i>DKIM Selector Analysis
+      <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ selector_stats|length }})</span>
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+  <div id="selector-stats-body" class="hidden">
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead><tr><th>Selector</th><th>Domain</th><th class="text-right">Total</th><th class="text-right">Pass</th><th class="text-right">Fail</th><th class="text-right">Pass Rate</th></tr></thead>
+        <tbody>
+          {% for s in selector_stats %}
+          <tr>
+            <td><code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ s.selector }}</code></td>
+            <td class="text-sm text-light-content-secondary dark:text-content-secondary">{{ s.domain }}</td>
+            <td class="text-right tabular-nums">{{ "{:,}".format(s.total) }}</td>
+            <td class="text-right">{% if s.pass_count > 0 %}<span class="badge-ok">{{ "{:,}".format(s.pass_count) }}</span>{% else %}0{% endif %}</td>
+            <td class="text-right">{% if s.fail_count > 0 %}<span class="badge-critical">{{ "{:,}".format(s.fail_count) }}</span>{% else %}0{% endif %}</td>
+            <td class="text-right tabular-nums"><span class="{% if s.pass_rate >= 90 %}text-status-success{% elif s.pass_rate >= 70 %}text-status-warning{% else %}text-status-danger{% endif %}">{{ s.pass_rate }}%</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── SPF Alignment Analysis ── #}
+{% if alignment_data %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('alignment-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-arrows-angle-contract mr-1.5"></i>SPF Alignment Analysis
+      <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ alignment_data|length }})</span>
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+  <div id="alignment-body" class="hidden">
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead><tr><th>Envelope From</th><th>Header From</th><th class="text-right">Count</th><th class="text-center">Aligned?</th><th class="text-right">SPF Pass Rate</th></tr></thead>
+        <tbody>
+          {% for a in alignment_data %}
+          <tr class="{% if not a.aligned %}bg-red-50/40 dark:bg-red-900/10{% endif %}">
+            <td><code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ a.envelope_from }}</code></td>
+            <td><code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ a.header_from }}</code></td>
+            <td class="text-right tabular-nums">{{ "{:,}".format(a.count) }}</td>
+            <td class="text-center">{% if a.aligned %}<span class="badge-ok">Yes</span>{% else %}<span class="badge-critical">No</span>{% endif %}</td>
+            <td class="text-right tabular-nums"><span class="{% if a.spf_pass_rate >= 90 %}text-status-success{% elif a.spf_pass_rate >= 70 %}text-status-warning{% else %}text-status-danger{% endif %}">{{ a.spf_pass_rate }}%</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Sending Source Classification ── #}
+{% if source_classes %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('source-class-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-server mr-1.5"></i>Sending Source Classification
+      <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ source_classes|length }})</span>
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+  <div id="source-class-body" class="hidden">
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead><tr><th>Source IP</th><th>PTR</th><th>Provider</th><th class="text-center">Category</th><th class="text-right">Total</th><th class="text-right">Fail</th><th class="text-right">Fail Rate</th></tr></thead>
+        <tbody>
+          {% for src in source_classes %}
+          <tr>
+            <td>
+              <a href="{{ url_for('dmarc_reports.ip_detail', ip=src.ip, domain=domain_filter or '') }}"
+                 class="hover:underline">
+                <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ src.ip }}</code>
+              </a>
+            </td>
+            <td class="text-xs text-light-content-secondary dark:text-content-secondary max-w-[200px] truncate" title="{{ src.ptr or '' }}">{{ src.ptr or '—' }}</td>
+            <td class="text-sm font-medium">{{ src.provider or '—' }}</td>
+            <td class="text-center">
+              {% if src.category == 'known' %}<span class="badge-ok">Known</span>
+              {% elif src.category == 'unknown' %}<span class="badge-warning">Unknown</span>
+              {% else %}<span class="badge-pending">Error</span>{% endif %}
+            </td>
+            <td class="text-right tabular-nums">{{ "{:,}".format(src.count) }}</td>
+            <td class="text-right">{% if src.fail_count > 0 %}<span class="badge-critical">{{ "{:,}".format(src.fail_count) }}</span>{% else %}<span class="text-light-content-muted dark:text-content-muted">0</span>{% endif %}</td>
+            <td class="text-right tabular-nums">
+              {% set rate = (src.fail_count / src.count * 100) | round(1) if src.count > 0 else 0 %}
+              <span class="{% if rate >= 50 %}text-status-danger{% elif rate >= 20 %}text-status-warning{% else %}text-status-success{% endif %}">{{ rate }}%</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Subdomain Traffic ── #}
+{% if subdomain_stats %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('subdomain-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-diagram-2 mr-1.5"></i>Subdomain Traffic
+      <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ subdomain_stats|length }})</span>
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+  <div id="subdomain-body" class="hidden">
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead><tr><th>Subdomain</th><th class="text-right">Total</th><th class="text-right">Pass</th><th class="text-right">Fail</th><th class="text-right">Pass Rate</th></tr></thead>
+        <tbody>
+          {% for sub in subdomain_stats %}
+          <tr>
+            <td><code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ sub.subdomain }}</code></td>
+            <td class="text-right tabular-nums">{{ "{:,}".format(sub.total) }}</td>
+            <td class="text-right">{% if sub.pass_count > 0 %}<span class="badge-ok">{{ "{:,}".format(sub.pass_count) }}</span>{% else %}0{% endif %}</td>
+            <td class="text-right">{% if sub.fail_count > 0 %}<span class="badge-critical">{{ "{:,}".format(sub.fail_count) }}</span>{% else %}0{% endif %}</td>
+            <td class="text-right tabular-nums"><span class="{% if sub.pass_rate >= 90 %}text-status-success{% elif sub.pass_rate >= 70 %}text-status-warning{% else %}text-status-danger{% endif %}">{{ sub.pass_rate }}%</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── New & Disappeared IPs ── #}
+{% if ip_changes and (ip_changes.new_ips or ip_changes.disappeared_ips) %}
+<div class="mica-card overflow-hidden mt-4">
+  <button type="button"
+          class="w-full px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-surface-raised/50 transition-colors"
+          onclick="var el=document.getElementById('ip-changes-body'); el.classList.toggle('hidden'); this.querySelector('.chevron-icon').classList.toggle('rotate-180');">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-arrow-left-right mr-1.5"></i>New &amp; Disappeared IPs
+    </span>
+    <i class="bi bi-chevron-down text-xs text-light-content-muted dark:text-content-muted transition-transform chevron-icon"></i>
+  </button>
+  <div id="ip-changes-body" class="hidden">
+    <div class="p-4 text-xs text-light-content-muted dark:text-content-muted mb-0">
+      Recent: {{ ip_changes.period_recent }} | Previous: {{ ip_changes.period_previous }}
+    </div>
+    {% if ip_changes.new_ips %}
+    <div class="px-4 pb-2"><span class="text-sm font-semibold text-light-content-primary dark:text-content-primary">New IPs ({{ ip_changes.new_ips|length }})</span></div>
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead><tr><th>IP</th><th class="text-right">Messages</th><th class="text-center">DKIM</th><th class="text-center">SPF</th></tr></thead>
+        <tbody>
+          {% for ip in ip_changes.new_ips %}
+          <tr>
+            <td>
+              <a href="{{ url_for('dmarc_reports.ip_detail', ip=ip.ip, domain=domain_filter or '') }}" class="hover:underline">
+                <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ ip.ip }}</code>
+              </a>
+            </td>
+            <td class="text-right tabular-nums">{{ "{:,}".format(ip.count) }}</td>
+            <td class="text-center">{% if ip.dkim == 'pass' %}<span class="badge-ok">pass</span>{% else %}<span class="badge-critical">fail</span>{% endif %}</td>
+            <td class="text-center">{% if ip.spf == 'pass' %}<span class="badge-ok">pass</span>{% else %}<span class="badge-critical">fail</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    {% if ip_changes.disappeared_ips %}
+    <div class="px-4 pt-3 pb-2"><span class="text-sm font-semibold text-light-content-primary dark:text-content-primary">Disappeared IPs ({{ ip_changes.disappeared_ips|length }})</span></div>
+    <div class="overflow-x-auto">
+      <table class="mica-table">
+        <thead><tr><th>IP</th><th class="text-right">Last Count</th></tr></thead>
+        <tbody>
+          {% for ip in ip_changes.disappeared_ips %}
+          <tr>
+            <td>
+              <a href="{{ url_for('dmarc_reports.ip_detail', ip=ip.ip, domain=domain_filter or '') }}" class="hover:underline">
+                <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ ip.ip }}</code>
+              </a>
+            </td>
+            <td class="text-right tabular-nums">{{ "{:,}".format(ip.last_count) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Multi-Domain Comparison ── #}
+{% if domain_comparison and domain_comparison|length > 1 %}
+<div class="mica-card overflow-hidden mt-4">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-grid-3x3-gap mr-1.5"></i>Multi-Domain Comparison
+    </span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="mica-table">
+      <thead><tr><th>Domain</th><th class="text-right">Messages</th><th class="text-right">Pass Rate</th><th class="text-center">Policy</th><th class="text-center">pct</th><th class="text-center">DKIM Align</th><th class="text-center">SPF Align</th></tr></thead>
+      <tbody>
+        {% for d in domain_comparison %}
+        <tr>
+          <td><code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ d.domain }}</code></td>
+          <td class="text-right tabular-nums">{{ "{:,}".format(d.total_messages) }}</td>
+          <td class="text-right tabular-nums"><span class="{% if d.pass_rate >= 90 %}text-status-success{% elif d.pass_rate >= 70 %}text-status-warning{% else %}text-status-danger{% endif %}">{{ d.pass_rate }}%</span></td>
+          <td class="text-center">
+            {% if d.policy == 'reject' %}<span class="badge-ok">{{ d.policy }}</span>
+            {% elif d.policy == 'quarantine' %}<span class="badge-warning">{{ d.policy }}</span>
+            {% else %}<span class="badge-pending">{{ d.policy }}</span>{% endif %}
+          </td>
+          <td class="text-center tabular-nums text-light-content-secondary dark:text-content-secondary">{{ d.pct if d.pct is not none else '—' }}</td>
+          <td class="text-center"><code class="text-xs">{{ d.adkim }}</code></td>
+          <td class="text-center"><code class="text-xs">{{ d.aspf }}</code></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 {% endif %}

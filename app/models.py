@@ -519,12 +519,17 @@ class DmarcReport(db.Model):
         db.Integer, db.ForeignKey("domains.id", ondelete="SET NULL"), nullable=True
     )
     email_subject: db.Mapped[str | None] = db.mapped_column(db.String(500), nullable=True)
+    policy_published_json: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
 
     domain: db.Mapped[Domain | None] = db.relationship("Domain")
 
     def get_records(self) -> list:
         """Deserialise records_json, returning an empty list on failure."""
         return _load_json(self.records_json, default=[])
+
+    def get_policy_published(self) -> dict:
+        """Deserialise policy_published_json."""
+        return _load_json(self.policy_published_json)
 
     def __repr__(self) -> str:
         return (

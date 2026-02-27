@@ -75,6 +75,20 @@
         </dd>
         {% endif %}
 
+        {% if policy_published and (policy_published.adkim or policy_published.aspf or policy_published.pct is not none or policy_published.sp) %}
+        <dt class="font-semibold text-light-content-secondary dark:text-content-secondary whitespace-nowrap">
+          Published Policy
+        </dt>
+        <dd class="text-light-content-primary dark:text-content-primary">
+          <div class="flex flex-wrap gap-2 text-xs">
+            {% if policy_published.adkim %}<span class="bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">adkim=<strong>{{ policy_published.adkim }}</strong></span>{% endif %}
+            {% if policy_published.aspf %}<span class="bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">aspf=<strong>{{ policy_published.aspf }}</strong></span>{% endif %}
+            {% if policy_published.pct is not none %}<span class="bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">pct=<strong>{{ policy_published.pct }}</strong></span>{% endif %}
+            {% if policy_published.sp %}<span class="bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">sp=<strong>{{ policy_published.sp }}</strong></span>{% endif %}
+          </div>
+        </dd>
+        {% endif %}
+
       </dl>
     </div>
 
@@ -167,6 +181,21 @@
               Header From <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
             </span>
           </th>
+          <th class="sortable-th" data-sort-col="6" data-sort-type="text">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              Envelope To <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
+          <th class="sortable-th" data-sort-col="7" data-sort-type="text">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              Envelope From <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
+          <th class="sortable-th" data-sort-col="8" data-sort-type="text">
+            <span class="inline-flex items-center gap-1 cursor-pointer hover:text-primary-500 dark:hover:text-primary-400 transition-colors select-none">
+              Override <i class="bi bi-chevron-expand text-xs opacity-30 sort-icon"></i>
+            </span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -226,18 +255,50 @@
                 <span class="text-light-content-muted dark:text-content-muted">&mdash;</span>
               {% endif %}
             </td>
+
+            {# Envelope To #}
+            <td class="text-sm text-light-content-secondary dark:text-content-secondary">
+              {% if rec.envelope_to %}
+                <code class="text-xs">{{ rec.envelope_to }}</code>
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted">&mdash;</span>
+              {% endif %}
+            </td>
+
+            {# Envelope From #}
+            <td class="text-sm text-light-content-secondary dark:text-content-secondary">
+              {% if rec.envelope_from %}
+                <code class="text-xs">{{ rec.envelope_from }}</code>
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted">&mdash;</span>
+              {% endif %}
+            </td>
+
+            {# Override #}
+            <td>
+              {% if rec.override_reason %}
+                {% if rec.override_reason in ('forwarded', 'trusted_forwarder', 'mailing_list') %}
+                  <span class="badge-info">{{ rec.override_reason }}</span>
+                {% elif rec.override_reason in ('sampled_out', 'local_policy') %}
+                  <span class="badge-warning">{{ rec.override_reason }}</span>
+                {% else %}
+                  <span class="badge-pending">{{ rec.override_reason }}</span>
+                {% endif %}
+              {% endif %}
+            </td>
           </tr>
 
-          {# Optional: per-record auth details sub-row (DKIM/SPF domain + result) #}
-          {% if rec.dkim_domain or rec.spf_domain %}
+          {# Optional: per-record auth details sub-row #}
+          {% if rec.dkim_domain or rec.spf_domain or rec.all_dkim_results %}
           <tr class="bg-gray-50/60 dark:bg-surface-raised/30">
-            <td colspan="6" class="py-1.5 px-4">
+            <td colspan="9" class="py-1.5 px-4">
               <div class="flex flex-wrap gap-x-6 gap-y-1 text-xs text-light-content-muted dark:text-content-muted">
                 {% if rec.dkim_domain %}
                 <span>
                   <i class="bi bi-key mr-1"></i>
                   DKIM:
                   <code>{{ rec.dkim_domain }}</code>
+                  {% if rec.dkim_selector %}<span class="opacity-70">(sel={{ rec.dkim_selector }})</span>{% endif %}
                   {% if rec.dkim_result %}
                     &mdash;
                     {% if rec.dkim_result == 'pass' %}
@@ -253,6 +314,7 @@
                   <i class="bi bi-shield-shaded mr-1"></i>
                   SPF:
                   <code>{{ rec.spf_domain }}</code>
+                  {% if rec.spf_scope %}<span class="opacity-70">({{ rec.spf_scope }})</span>{% endif %}
                   {% if rec.spf_result %}
                     &mdash;
                     {% if rec.spf_result == 'pass' %}
@@ -263,6 +325,17 @@
                   {% endif %}
                 </span>
                 {% endif %}
+                {% if rec.all_dkim_results and rec.all_dkim_results|length > 1 %}
+                <span class="block w-full mt-1">
+                  <i class="bi bi-key-fill mr-1"></i>Additional DKIM signatures:
+                  {% for sig in rec.all_dkim_results[1:] %}
+                    <code>{{ sig.domain }}{% if sig.selector %}({{ sig.selector }}){% endif %}</code>={% if sig.result == 'pass' %}<span class="text-status-success">{{ sig.result }}</span>{% else %}<span class="text-status-danger">{{ sig.result }}</span>{% endif %}{% if not loop.last %}, {% endif %}
+                  {% endfor %}
+                </span>
+                {% endif %}
+                {% if rec.override_comment %}
+                <span class="block w-full mt-1 italic">Override comment: {{ rec.override_comment }}</span>
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -271,7 +344,7 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="6" class="text-center text-light-content-muted dark:text-content-muted py-10">
+            <td colspan="9" class="text-center text-light-content-muted dark:text-content-muted py-10">
               <i class="bi bi-inbox text-3xl block mb-2 opacity-40"></i>
               No source IP records found for this report.
             </td>

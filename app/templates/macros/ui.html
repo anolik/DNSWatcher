@@ -149,7 +149,7 @@
 {% macro flash_messages() %}
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-  <div id="flash-container" class="fixed top-16 right-4 z-50 space-y-2 w-full max-w-sm pointer-events-none">
+  <div id="flash-container" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 space-y-2 w-full max-w-lg pointer-events-none">
     {% for category, message in messages %}
       {% if category == 'error' %}
         {% set colors = 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800/30' %}
@@ -178,7 +178,7 @@
       msgs.forEach(function(el){
         setTimeout(function(){
           el.style.opacity = '0';
-          el.style.transform = 'translateX(20px)';
+          el.style.transform = 'translateY(-10px)';
           setTimeout(function(){ el.remove(); }, 300);
         }, 10000);
       });

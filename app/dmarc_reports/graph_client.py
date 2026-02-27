@@ -184,8 +184,7 @@ def _get_attachments(mailbox: str, message_id: str, token: str) -> list[dict]:
         List of dicts with keys 'name' (str) and 'data' (bytes).
     """
     safe_msg_id = urllib.parse.quote(message_id, safe="")
-    params = urllib.parse.urlencode({"$select": "name,contentBytes"})
-    url = f"{_GRAPH_BASE}/users/{mailbox}/messages/{safe_msg_id}/attachments?{params}"
+    url = f"{_GRAPH_BASE}/users/{mailbox}/messages/{safe_msg_id}/attachments"
     response = _make_request(url, token=token)
 
     attachments: list[dict] = []

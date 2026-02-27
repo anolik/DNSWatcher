@@ -66,7 +66,7 @@ def migrate() -> None:
                     name VARCHAR(200) NOT NULL UNIQUE,
                     slug VARCHAR(100) NOT NULL UNIQUE,
                     is_active BOOLEAN NOT NULL DEFAULT 1,
-                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     created_by INTEGER,
                     max_domains INTEGER NOT NULL DEFAULT 100,
                     notes TEXT,
@@ -88,8 +88,8 @@ def migrate() -> None:
         default_org = cursor.fetchone()
         if default_org is None:
             cursor.execute(
-                "INSERT INTO organizations (name, slug, is_active, max_domains)"
-                " VALUES (?, ?, 1, 1000)",
+                "INSERT INTO organizations (name, slug, is_active, max_domains, created_at)"
+                " VALUES (?, ?, 1, 1000, datetime('now'))",
                 ("Default", "default"),
             )
             default_org_id = cursor.lastrowid

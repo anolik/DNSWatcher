@@ -18,7 +18,6 @@ import sys
 from sqlalchemy import text
 
 from app import create_app, db
-from app.models import DnsSettings
 
 
 def init_database() -> None:
@@ -41,22 +40,21 @@ def init_database() -> None:
         print(f"[init_db] SQLite journal_mode = {mode}")
 
         # ------------------------------------------------------------------
-        # Seed the DnsSettings singleton (id=1) if it does not yet exist
+        # Seed the DnsSettings singleton (id=1) if it does not yet exist.
+        # Uses raw SQL to avoid ORM column mismatch when migrations haven't
+        # run yet (the model may have columns the table lacks).
         # ------------------------------------------------------------------
-        settings = db.session.get(DnsSettings, 1)
-        if settings is None:
-            settings = DnsSettings(
-                id=1,
-                resolvers=json.dumps(["8.8.8.8", "1.1.1.1", "9.9.9.9"]),
-                timeout_seconds=5.0,
-                retries=3,
-                flap_threshold=2,
-            )
-            db.session.add(settings)
-            db.session.commit()
-            print("[init_db] DnsSettings singleton seeded (id=1).")
-        else:
-            print("[init_db] DnsSettings singleton already exists — skipped.")
+        with db.engine.connect() as conn:
+            row = conn.execute(text("SELECT id FROM dns_settings WHERE id = 1")).fetchone()
+            if row is None:
+                conn.execute(text(
+                    "INSERT INTO dns_settings (id, resolvers, timeout_seconds, retries, flap_threshold)"
+                    " VALUES (1, :resolvers, 5.0, 3, 2)"
+                ), {"resolvers": json.dumps(["8.8.8.8", "1.1.1.1", "9.9.9.9"])})
+                conn.commit()
+                print("[init_db] DnsSettings singleton seeded (id=1).")
+            else:
+                print("[init_db] DnsSettings singleton already exists — skipped.")
 
         print("[init_db] Initialisation complete.")
 

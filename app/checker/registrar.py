@@ -1,9 +1,10 @@
 """
 Domain registrar checker — RDAP primary with WHOIS fallback.
 
-Uses direct HTTPS requests to configurable RDAP servers (RFC 9083) with
-round-robin rotation to distribute load and avoid per-server rate limits.
-Falls back to ``python-whois`` when RDAP fails.
+Uses the IANA RDAP Bootstrap (RFC 7484) to resolve each domain's TLD to
+its authoritative RDAP server, bypassing the rdap.org redirector that
+aggressively rate-limits shared IPs.  Falls back to user-configured servers
+(round-robin), then to ``python-whois`` when all RDAP paths fail.
 
 Failures never affect the domain check pipeline; registrar data is purely
 informational.
@@ -53,6 +54,71 @@ _DEFAULT_RDAP_SERVERS: list[str] = ["https://rdap.org"]
 # Atomic counter for round-robin server selection (thread-safe).
 _rdap_counter = itertools.count()
 
+# ---------------------------------------------------------------------------
+# IANA RDAP Bootstrap (RFC 7484)
+# ---------------------------------------------------------------------------
+
+_IANA_BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
+_IANA_BOOTSTRAP_TIMEOUT = 10  # seconds
+
+# Thread-safe cache: TLD → authoritative RDAP base URL.
+_bootstrap_lock = threading.Lock()
+_bootstrap_cache: dict[str, str] = {}
+_bootstrap_loaded: bool = False
+
+
+def _load_bootstrap() -> None:
+    """Fetch the IANA RDAP bootstrap file and populate ``_bootstrap_cache``.
+
+    Called lazily on first RDAP lookup.  On failure the cache stays empty
+    and the code falls back to configured servers / WHOIS.
+    """
+    global _bootstrap_loaded
+    with _bootstrap_lock:
+        if _bootstrap_loaded:
+            return
+        try:
+            resp = requests.get(
+                _IANA_BOOTSTRAP_URL,
+                timeout=_IANA_BOOTSTRAP_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            for entry in data.get("services", []):
+                if len(entry) < 2:
+                    continue
+                tlds, urls = entry[0], entry[1]
+                if not urls:
+                    continue
+                server_url = urls[0].rstrip("/")
+                for tld in tlds:
+                    _bootstrap_cache[tld.lower()] = server_url
+            logger.info(
+                "IANA RDAP bootstrap loaded: %d TLD mappings",
+                len(_bootstrap_cache),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to load IANA RDAP bootstrap (%s); "
+                "will fall back to configured servers",
+                exc,
+            )
+        _bootstrap_loaded = True
+
+
+def _get_bootstrap_server(domain: str) -> str | None:
+    """Return the authoritative RDAP server for *domain*'s TLD, or ``None``.
+
+    Extracts the TLD (rightmost label) from the domain name and looks it
+    up in the cached IANA bootstrap data.
+    """
+    if not _bootstrap_loaded:
+        _load_bootstrap()
+    tld = domain.rsplit(".", 1)[-1].lower() if "." in domain else None
+    if tld:
+        return _bootstrap_cache.get(tld)
+    return None
+
 
 # ---------------------------------------------------------------------------
 # RDAP round-robin server selection
@@ -88,23 +154,13 @@ def _throttle_wait(delay: float) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _do_rdap_lookup(domain: str, servers: list[str]) -> dict[str, Any] | None:
-    """Attempt an RDAP lookup for *domain* using direct HTTPS.
-
-    Picks a server via round-robin, sends a GET request with the
-    ``application/rdap+json`` accept header, and parses the RFC 9083
-    response.
+def _do_single_rdap_request(domain: str, server: str) -> dict[str, Any] | None:
+    """Send one RDAP request to *server* for *domain*.
 
     Returns:
-        A normalized result dict on success, or ``None`` if the RDAP
-        request fails (triggering WHOIS fallback).
+        A normalized result dict on success, or ``None`` on failure.
     """
-    if not servers:
-        return None
-
-    server = _pick_rdap_server(servers)
     url = f"{server.rstrip('/')}/domain/{domain}"
-
     try:
         resp = requests.get(
             url,
@@ -115,18 +171,60 @@ def _do_rdap_lookup(domain: str, servers: list[str]) -> dict[str, Any] | None:
         data = resp.json()
     except requests.RequestException as exc:
         logger.info(
-            "RDAP lookup for %s via %s failed (%s); falling back to WHOIS",
+            "RDAP lookup for %s via %s failed (%s)",
             domain, server, exc,
         )
         return None
     except (ValueError, KeyError) as exc:
         logger.info(
-            "RDAP JSON parse error for %s via %s (%s); falling back to WHOIS",
+            "RDAP JSON parse error for %s via %s (%s)",
             domain, server, exc,
         )
         return None
 
     return _parse_rdap_response(data)
+
+
+def _do_rdap_lookup(domain: str, servers: list[str]) -> dict[str, Any] | None:
+    """Attempt an RDAP lookup for *domain*.
+
+    Strategy (in order):
+    1. **IANA Bootstrap** — query the authoritative RDAP server for the
+       domain's TLD directly (bypasses rdap.org rate limits).
+    2. **Configured servers** — round-robin through user-configured servers.
+
+    Returns:
+        A normalized result dict on success, or ``None`` if all RDAP
+        attempts fail (triggering WHOIS fallback).
+    """
+    # 1) Try the IANA bootstrap server (authoritative for this TLD).
+    bootstrap_server = _get_bootstrap_server(domain)
+    if bootstrap_server:
+        result = _do_single_rdap_request(domain, bootstrap_server)
+        if result is not None:
+            return result
+        # Bootstrap server failed — fall through to configured servers.
+
+    # 2) Try user-configured servers (round-robin).
+    if not servers:
+        return None
+
+    server = _pick_rdap_server(servers)
+    # Skip if it's the same server we already tried via bootstrap.
+    if bootstrap_server and server.rstrip("/") == bootstrap_server:
+        logger.info(
+            "RDAP: skipping configured server %s (same as bootstrap); "
+            "falling back to WHOIS for %s",
+            server, domain,
+        )
+        return None
+
+    result = _do_single_rdap_request(domain, server)
+    if result is not None:
+        return result
+
+    logger.info("All RDAP attempts failed for %s; falling back to WHOIS", domain)
+    return None
 
 
 def _parse_rdap_response(data: dict[str, Any]) -> dict[str, Any]:

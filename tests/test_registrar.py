@@ -583,3 +583,173 @@ class TestRdapThrottle:
 
         # Should have waited at least the patched default
         assert elapsed >= 0.15, f"Expected >= 0.15s, got {elapsed:.2f}s"
+
+
+# ---------------------------------------------------------------------------
+# Tests – IANA RDAP Bootstrap (RFC 7484)
+# ---------------------------------------------------------------------------
+
+
+class TestIanaBootstrap:
+    """Test the IANA RDAP Bootstrap server resolution."""
+
+    def test_get_bootstrap_server_returns_cached(self, app):
+        """Should return the authoritative server when TLD is in cache."""
+        import app.checker.registrar as reg
+
+        # Seed the cache with a known TLD mapping
+        original_cache = reg._bootstrap_cache.copy()
+        original_loaded = reg._bootstrap_loaded
+        reg._bootstrap_cache["finance"] = "https://rdap.nic.finance"
+        reg._bootstrap_loaded = True
+        try:
+            result = reg._get_bootstrap_server("bma.finance")
+            assert result == "https://rdap.nic.finance"
+        finally:
+            reg._bootstrap_cache.clear()
+            reg._bootstrap_cache.update(original_cache)
+            reg._bootstrap_loaded = original_loaded
+
+    def test_get_bootstrap_server_unknown_tld(self, app):
+        """Should return None for a TLD not in the cache."""
+        import app.checker.registrar as reg
+
+        original_loaded = reg._bootstrap_loaded
+        reg._bootstrap_loaded = True
+        try:
+            result = reg._get_bootstrap_server("example.zzz")
+            assert result is None
+        finally:
+            reg._bootstrap_loaded = original_loaded
+
+    @patch("app.checker.registrar.requests.get")
+    def test_bootstrap_server_tried_first(self, mock_get, app):
+        """RDAP should try the bootstrap server before configured servers."""
+        with app.app_context():
+            import app.checker.registrar as reg
+
+            # Seed bootstrap cache
+            original_cache = reg._bootstrap_cache.copy()
+            original_loaded = reg._bootstrap_loaded
+            reg._bootstrap_cache["finance"] = "https://rdap.nic.finance"
+            reg._bootstrap_loaded = True
+
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = _make_rdap_response(
+                registrar_name="Gandi SAS"
+            )
+            mock_resp.raise_for_status.return_value = None
+            mock_get.return_value = mock_resp
+
+            try:
+                from app.checker.registrar import check_registrar
+
+                result = check_registrar(
+                    "bma.finance",
+                    rdap_servers=["https://rdap.org"],
+                    throttle_delay=0,
+                )
+            finally:
+                reg._bootstrap_cache.clear()
+                reg._bootstrap_cache.update(original_cache)
+                reg._bootstrap_loaded = original_loaded
+
+        assert result["registrar"] == "Gandi SAS"
+        assert result["lookup_method"] == "rdap"
+        # The first call should be to the bootstrap server, not rdap.org
+        first_url = mock_get.call_args_list[0][0][0]
+        assert "rdap.nic.finance" in first_url
+
+    @patch("app.checker.registrar.requests.get")
+    def test_bootstrap_failure_falls_to_configured(self, mock_get, app):
+        """If bootstrap server fails, configured servers should be tried."""
+        with app.app_context():
+            import app.checker.registrar as reg
+
+            original_cache = reg._bootstrap_cache.copy()
+            original_loaded = reg._bootstrap_loaded
+            reg._bootstrap_cache["com"] = "https://rdap.verisign.com/com/v1"
+            reg._bootstrap_loaded = True
+
+            # First call (bootstrap) fails, second call (configured) succeeds
+            fail_resp = MagicMock()
+            fail_resp.raise_for_status.side_effect = requests.HTTPError("503")
+
+            ok_resp = MagicMock()
+            ok_resp.json.return_value = _make_rdap_response()
+            ok_resp.raise_for_status.return_value = None
+
+            mock_get.side_effect = [fail_resp, ok_resp]
+
+            try:
+                from app.checker.registrar import check_registrar
+
+                result = check_registrar(
+                    "example.com",
+                    rdap_servers=["https://rdap.org"],
+                    throttle_delay=0,
+                )
+            finally:
+                reg._bootstrap_cache.clear()
+                reg._bootstrap_cache.update(original_cache)
+                reg._bootstrap_loaded = original_loaded
+
+        assert result["registrar"] == "GoDaddy.com, LLC"
+        assert result["lookup_method"] == "rdap"
+        # Should have called both bootstrap and configured server
+        assert mock_get.call_count == 2
+        urls = [call[0][0] for call in mock_get.call_args_list]
+        assert "rdap.verisign.com" in urls[0]
+        assert "rdap.org" in urls[1]
+
+    @patch("app.checker.registrar.requests.get")
+    def test_load_bootstrap_parses_iana_json(self, mock_get, app):
+        """_load_bootstrap should populate _bootstrap_cache from IANA JSON."""
+        import app.checker.registrar as reg
+
+        original_cache = reg._bootstrap_cache.copy()
+        original_loaded = reg._bootstrap_loaded
+        reg._bootstrap_cache.clear()
+        reg._bootstrap_loaded = False
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "services": [
+                [["com", "net"], ["https://rdap.verisign.com/com/v1/"]],
+                [["finance"], ["https://rdap.nic.finance/"]],
+            ]
+        }
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        try:
+            reg._load_bootstrap()
+            assert reg._bootstrap_cache["com"] == "https://rdap.verisign.com/com/v1"
+            assert reg._bootstrap_cache["net"] == "https://rdap.verisign.com/com/v1"
+            assert reg._bootstrap_cache["finance"] == "https://rdap.nic.finance"
+            assert reg._bootstrap_loaded is True
+        finally:
+            reg._bootstrap_cache.clear()
+            reg._bootstrap_cache.update(original_cache)
+            reg._bootstrap_loaded = original_loaded
+
+    @patch("app.checker.registrar.requests.get")
+    def test_load_bootstrap_failure_sets_loaded(self, mock_get, app):
+        """Bootstrap load failure should set _bootstrap_loaded=True to avoid retries."""
+        import app.checker.registrar as reg
+
+        original_cache = reg._bootstrap_cache.copy()
+        original_loaded = reg._bootstrap_loaded
+        reg._bootstrap_cache.clear()
+        reg._bootstrap_loaded = False
+
+        mock_get.side_effect = requests.ConnectionError("no internet")
+
+        try:
+            reg._load_bootstrap()
+            assert reg._bootstrap_loaded is True
+            assert len(reg._bootstrap_cache) == 0
+        finally:
+            reg._bootstrap_cache.clear()
+            reg._bootstrap_cache.update(original_cache)
+            reg._bootstrap_loaded = original_loaded

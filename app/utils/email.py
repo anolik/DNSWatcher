@@ -2,7 +2,7 @@
 F42 - Email sending via Microsoft Graph API.
 
 Sends emails using the Graph API's sendMail endpoint.
-Falls back to logging email content when Graph is not configured.
+Falls back to logging email content when outbound email is not configured.
 """
 
 from __future__ import annotations
@@ -48,9 +48,10 @@ def _get_graph_settings():
 def send_email(to: str, subject: str, html_body: str, text_body: str = "") -> bool:
     """Send email via Microsoft Graph API.
 
-    Uses graph_tenant_id, graph_client_id, graph_client_secret, graph_mailbox
-    from DnsSettings (global). Returns True on success, False on failure.
-    Falls back to logging the email content when Graph is not configured.
+    Uses outbound_tenant_id, outbound_client_id, outbound_client_secret,
+    outbound_mailbox from DnsSettings (global). Returns True on success,
+    False on failure. Falls back to logging the email content when
+    outbound email is not configured.
 
     Args:
         to: Recipient email address.
@@ -63,20 +64,20 @@ def send_email(to: str, subject: str, html_body: str, text_body: str = "") -> bo
     """
     settings = _get_graph_settings()
 
-    if settings is None or not settings.graph_enabled:
+    if settings is None or not settings.outbound_enabled:
         logger.info(
-            "Email not sent (Graph not configured): to=%r subject=%r", to, subject
+            "Email not sent (outbound email not configured): to=%r subject=%r", to, subject
         )
         logger.debug("Email body (text): %s", text_body or html_body[:500])
         return False
 
-    tenant_id = settings.graph_tenant_id
-    client_id = settings.graph_client_id
-    client_secret = settings.graph_client_secret
-    mailbox = settings.graph_mailbox
+    tenant_id = settings.outbound_tenant_id
+    client_id = settings.outbound_client_id
+    client_secret = settings.outbound_client_secret
+    mailbox = settings.outbound_mailbox
 
     if not all([tenant_id, client_id, client_secret, mailbox]):
-        logger.warning("Email not sent (incomplete Graph credentials): to=%r", to)
+        logger.warning("Email not sent (incomplete outbound email credentials): to=%r", to)
         return False
 
     try:

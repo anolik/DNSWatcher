@@ -59,6 +59,13 @@
           <i class="bi bi-shield-check text-primary-400"></i>
           <span>DNS Watcher</span>
         </a>
+        {% if user_is_admin %}
+        <a href="{{ url_for('admin.users') }}"
+           class="p-2 rounded-lg text-light-content-secondary dark:text-content-secondary hover:bg-gray-100 dark:hover:bg-surface-raised transition-colors"
+           title="Administration">
+          <i class="bi bi-gear-fill"></i>
+        </a>
+        {% endif %}
 
         {# Desktop nav links #}
         <div class="hidden md:flex items-center gap-1">
@@ -66,8 +73,7 @@
             ('dashboard.index', 'speedometer2', 'Dashboard', 'dashboard.', false),
             ('history.index', 'clock-history', 'Changes', 'history.', false),
             ('ingest.index', 'upload', 'Import', 'ingest.', false),
-            ('dmarc_reports.index', 'file-earmark-text', 'DMARC', 'dmarc_reports.', false),
-            ('admin.users', 'people', 'Admin', 'admin.', true),
+            ('dmarc_reports.index', 'envelope-open', 'Inbound', 'dmarc_reports.', false),
             ('settings.index', 'gear', 'Settings', 'settings.', false),
             ('history.health_page', 'heart-pulse', 'Health', None, false),
           ] %}
@@ -114,13 +120,10 @@
           </span>
           {% endif %}
 
-          {# User info + profile + logout #}
-          <span class="hidden sm:inline text-xs text-light-content-muted dark:text-content-muted">
-            <i class="bi bi-person-circle mr-1"></i>{{ current_user.username }}
-          </span>
+          {# User info + logout #}
           <a href="{{ url_for('auth.profile') }}"
-             class="text-xs text-light-content-muted dark:text-content-muted hover:text-primary-500 transition-colors">
-            <i class="bi bi-person mr-1"></i>Profile
+             class="hidden sm:inline text-xs text-light-content-muted dark:text-content-muted hover:text-primary-500 transition-colors">
+            <i class="bi bi-person-circle mr-1"></i>{{ current_user.username }}
           </a>
           <a href="{{ url_for('auth.logout') }}"
              class="text-xs text-light-content-muted dark:text-content-muted hover:text-status-danger transition-colors">

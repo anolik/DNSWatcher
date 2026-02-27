@@ -158,6 +158,18 @@ class DnsSettingsForm(FlaskForm):
         "Mailbox email (rua= address)",
         validators=[Optional()],
     )
+    outbound_enabled: BooleanField = BooleanField("Enable outbound email (password reset, notifications)")
+    outbound_tenant_id: StringField = StringField("Azure Tenant ID", validators=[Optional()])
+    outbound_client_id: StringField = StringField("App (Client) ID", validators=[Optional()])
+    outbound_client_secret: StringField = StringField(
+        "Client Secret",
+        render_kw={"type": "password", "autocomplete": "new-password"},
+        validators=[Optional()],
+    )
+    outbound_mailbox: StringField = StringField(
+        "Sending mailbox (noreply@ address)",
+        validators=[Optional()],
+    )
     submit: SubmitField = SubmitField("Save Settings")
 
     def validate_resolvers(self, field: TextAreaField) -> None:

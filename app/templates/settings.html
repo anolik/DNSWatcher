@@ -3,12 +3,15 @@
 {#
   Determine which tab to open initially (must be at template level, not inside a block,
   so the variable is accessible in both {% block content %} and {% block extra_js %}).
-  - If any graph field has an error, open the DMARC tab.
+  - If any outbound field has an error, open the Outbound tab.
+  - If any graph (inbound) field has an error, open the Inbound tab.
   - Otherwise default to DNS tab (sessionStorage overrides in JS).
 #}
 {% set _graph_errors = form.graph_tenant_id.errors or form.graph_client_id.errors
                        or form.graph_client_secret.errors or form.graph_mailbox.errors %}
-{% set _initial_tab = 'dmarc' if _graph_errors else 'dns' %}
+{% set _outbound_errors = form.outbound_tenant_id.errors or form.outbound_client_id.errors
+                          or form.outbound_client_secret.errors or form.outbound_mailbox.errors %}
+{% set _initial_tab = 'outbound' if _outbound_errors else ('inbound' if _graph_errors else 'dns') %}
 {# Feature toggle definitions for the template #}
 {% set _core_checks = [
     ('check_spf_enabled',  'bi-shield-shaded',  'SPF',                     'Sender Policy Framework record validation'),
@@ -35,11 +38,11 @@
 
 <div class="grid grid-cols-12 gap-6">
 
-  {# ── Left column: tab bar + form ── #}
+  {# -- Left column: tab bar + form -- #}
   <div class="col-span-12 lg:col-span-7">
     <div class="mica-card overflow-hidden">
 
-      {# ── Tab bar ── #}
+      {# -- Tab bar -- #}
       <div class="flex border-b border-light-surface-border/20 dark:border-surface-border/10 px-1 pt-1 gap-1">
         <button type="button"
                 id="tab-btn-dns"
@@ -54,14 +57,20 @@
           <i class="bi bi-toggles mr-1.5"></i>Features
         </button>
         <button type="button"
-                id="tab-btn-dmarc"
-                data-tab="dmarc"
+                id="tab-btn-inbound"
+                data-tab="inbound"
                 class="settings-tab-btn px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none">
-          <i class="bi bi-envelope-at mr-1.5"></i>DMARC Reports
+          <i class="bi bi-envelope-at mr-1.5"></i>Inbound Email
+        </button>
+        <button type="button"
+                id="tab-btn-outbound"
+                data-tab="outbound"
+                class="settings-tab-btn px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none">
+          <i class="bi bi-send mr-1.5"></i>Outbound Email
         </button>
       </div>
 
-      {# ── Single form (both panels share it) ── #}
+      {# -- Single form (both panels share it) -- #}
       <form method="post" action="{{ url_for('settings.index') }}">
         {{ form.hidden_tag() }}
 
@@ -245,9 +254,9 @@
         </div>{# /panel-features #}
 
         {# ══════════════════════════════════════════════════════════════
-           Panel: DMARC Reports (Microsoft Graph API)
+           Panel: Inbound Email (Microsoft Graph API - Mail.Read)
            ══════════════════════════════════════════════════════════════ #}
-        <div id="panel-dmarc" data-panel="dmarc" class="settings-tab-panel p-4 hidden">
+        <div id="panel-inbound" data-panel="inbound" class="settings-tab-panel p-4 hidden">
 
           <p class="text-sm text-light-content-muted dark:text-content-muted mb-5">
             Automatically fetch DMARC aggregate reports from an Exchange Online mailbox
@@ -333,7 +342,7 @@
 
           <hr class="border-light-surface-border/20 dark:border-surface-border/10 my-5">
 
-          {# ── Data Retention ── #}
+          {# -- Data Retention -- #}
           <h3 class="text-xs font-bold uppercase tracking-wider text-light-content-muted dark:text-content-muted mb-3">
             <i class="bi bi-clock-history mr-1.5"></i>Data Retention
           </h3>
@@ -380,7 +389,99 @@
               <i class="bi bi-file-earmark-text mr-1"></i>View DMARC Reports
             </a>
           </div>
-        </div>{# /panel-dmarc #}
+        </div>{# /panel-inbound #}
+
+        {# ══════════════════════════════════════════════════════════════
+           Panel: Outbound Email (Microsoft Graph API - Mail.Send)
+           ══════════════════════════════════════════════════════════════ #}
+        <div id="panel-outbound" data-panel="outbound" class="settings-tab-panel p-4 hidden">
+
+          <p class="text-sm text-light-content-muted dark:text-content-muted mb-5">
+            Send outbound emails (password resets, notifications) via Microsoft Graph API.
+            Requires an
+            <strong class="text-light-content-primary dark:text-content-primary">Azure AD App Registration</strong>
+            with the <code class="font-mono text-xs bg-gray-100 dark:bg-surface-raised px-1 py-0.5 rounded">Mail.Send</code>
+            application permission.
+          </p>
+
+          {# Enable toggle #}
+          <div class="mb-5 flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-surface-raised border border-light-surface-border/20 dark:border-surface-border/10">
+            {{ form.outbound_enabled(id=form.outbound_enabled.id, class="w-4 h-4 accent-primary-500 flex-shrink-0") }}
+            <label for="{{ form.outbound_enabled.id }}"
+                   class="text-sm font-semibold text-light-content-primary dark:text-content-primary cursor-pointer select-none">
+              {{ form.outbound_enabled.label.text }}
+            </label>
+          </div>
+
+          <div class="grid grid-cols-12 gap-4">
+
+            {# Tenant ID #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.outbound_tenant_id.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.outbound_tenant_id.label.text }}
+              </label>
+              {{ form.outbound_tenant_id(id=form.outbound_tenant_id.id,
+                                          class="mica-input font-mono text-xs" + (" is-invalid" if form.outbound_tenant_id.errors else ""),
+                                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }}
+              {% for err in form.outbound_tenant_id.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            {# Client ID #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.outbound_client_id.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.outbound_client_id.label.text }}
+              </label>
+              {{ form.outbound_client_id(id=form.outbound_client_id.id,
+                                          class="mica-input font-mono text-xs" + (" is-invalid" if form.outbound_client_id.errors else ""),
+                                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") }}
+              {% for err in form.outbound_client_id.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            {# Client Secret #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.outbound_client_secret.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.outbound_client_secret.label.text }}
+              </label>
+              {{ form.outbound_client_secret(id=form.outbound_client_secret.id,
+                                              class="mica-input" + (" is-invalid" if form.outbound_client_secret.errors else ""),
+                                              placeholder="Leave blank to keep current secret") }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                Leave blank to keep the existing secret unchanged.
+              </p>
+              {% for err in form.outbound_client_secret.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            {# Mailbox #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.outbound_mailbox.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.outbound_mailbox.label.text }}
+              </label>
+              {{ form.outbound_mailbox(id=form.outbound_mailbox.id,
+                                        class="mica-input" + (" is-invalid" if form.outbound_mailbox.errors else ""),
+                                        placeholder="noreply@yourdomain.com") }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                The Exchange Online mailbox used as the sender (e.g. <code class="font-mono text-xs">noreply@</code>).
+              </p>
+              {% for err in form.outbound_mailbox.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="mt-5">
+            {{ form.submit(class="btn-primary") }}
+          </div>
+        </div>{# /panel-outbound #}
 
       </form>
 
@@ -391,7 +492,7 @@
     </div>{# /mica-card #}
   </div>{# /col-span-7 #}
 
-  {# ── Right column: context-sensitive sidebar ── #}
+  {# -- Right column: context-sensitive sidebar -- #}
   <div class="col-span-12 lg:col-span-5 space-y-4">
 
     {# DNS sidebar (shown for DNS tab) #}
@@ -467,8 +568,8 @@
       </div>
     </div>
 
-    {# DMARC sidebar (shown for DMARC tab) #}
-    <div id="sidebar-dmarc" class="settings-sidebar mica-card overflow-hidden hidden">
+    {# Inbound sidebar (shown for Inbound tab) #}
+    <div id="sidebar-inbound" class="settings-sidebar mica-card overflow-hidden hidden">
       <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
         <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
           <i class="bi bi-info-circle mr-1.5"></i>Graph API Setup Guide
@@ -508,6 +609,37 @@
             <i class="bi bi-trash3 mr-1 text-status-danger"></i>
             <strong class="text-light-content-primary dark:text-content-primary">Data retention</strong> controls how long
             DMARC reports, check results, and change logs are kept. Use the purge button to clean up old data immediately.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {# Outbound sidebar (shown for Outbound tab) #}
+    <div id="sidebar-outbound" class="settings-sidebar mica-card overflow-hidden hidden">
+      <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+        <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+          <i class="bi bi-info-circle mr-1.5"></i>Outbound Email Setup Guide
+        </span>
+      </div>
+      <div class="p-4 text-sm text-light-content-muted dark:text-content-muted space-y-3">
+        <p>Configure outbound email for password resets and notifications via
+           <strong class="text-light-content-primary dark:text-content-primary">Microsoft Graph API</strong>.</p>
+        <ol class="list-decimal list-inside space-y-2 text-xs leading-relaxed">
+          <li>Go to <strong class="text-light-content-primary dark:text-content-primary">Azure Active Directory → App registrations</strong>.</li>
+          <li>Create a new app or reuse the inbound app if desired.</li>
+          <li>Copy the <strong class="text-light-content-primary dark:text-content-primary">Tenant ID</strong> and
+              <strong class="text-light-content-primary dark:text-content-primary">Client ID</strong>.</li>
+          <li>Under <strong class="text-light-content-primary dark:text-content-primary">Certificates &amp; secrets</strong> — create a client secret.</li>
+          <li>Under <strong class="text-light-content-primary dark:text-content-primary">API permissions</strong> — add
+              <code class="font-mono bg-gray-100 dark:bg-surface-raised px-1 rounded">Mail.Send</code> (Application permission), then
+              <strong class="text-light-content-primary dark:text-content-primary">Grant admin consent</strong>.</li>
+          <li>Enter the sending mailbox address (e.g. <code class="font-mono bg-gray-100 dark:bg-surface-raised px-1 rounded">noreply@yourdomain.com</code>).</li>
+        </ol>
+        <div class="pt-2 border-t border-light-surface-border/20 dark:border-surface-border/10">
+          <p class="text-xs">
+            <i class="bi bi-shield-check mr-1 text-status-ok"></i>
+            This can be the <strong class="text-light-content-primary dark:text-content-primary">same or a different</strong>
+            Azure AD app from the inbound email configuration. Using separate apps provides better permission isolation.
           </p>
         </div>
       </div>

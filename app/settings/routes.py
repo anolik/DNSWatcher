@@ -59,8 +59,17 @@ def _apply_form_to_settings(dns_settings: DnsSettings, form: DnsSettingsForm) ->
     dns_settings.graph_enabled = form.graph_enabled.data
     dns_settings.graph_tenant_id = (form.graph_tenant_id.data or "").strip() or None
     dns_settings.graph_client_id = (form.graph_client_id.data or "").strip() or None
-    dns_settings.graph_client_secret = (form.graph_client_secret.data or "").strip() or None
+    graph_secret = (form.graph_client_secret.data or "").strip()
+    if graph_secret:
+        dns_settings.graph_client_secret = graph_secret
     dns_settings.graph_mailbox = (form.graph_mailbox.data or "").strip() or None
+    dns_settings.outbound_enabled = form.outbound_enabled.data
+    dns_settings.outbound_tenant_id = (form.outbound_tenant_id.data or "").strip() or None
+    dns_settings.outbound_client_id = (form.outbound_client_id.data or "").strip() or None
+    outbound_secret = (form.outbound_client_secret.data or "").strip()
+    if outbound_secret:
+        dns_settings.outbound_client_secret = outbound_secret
+    dns_settings.outbound_mailbox = (form.outbound_mailbox.data or "").strip() or None
     dns_settings.updated_at = datetime.now(timezone.utc)
     dns_settings.updated_by = current_user.id
     return resolver_lines
@@ -142,5 +151,10 @@ def index():
         form.graph_client_id.data = dns_settings.graph_client_id or ""
         form.graph_client_secret.data = ""  # never pre-fill secrets
         form.graph_mailbox.data = dns_settings.graph_mailbox or ""
+        form.outbound_enabled.data = dns_settings.outbound_enabled
+        form.outbound_tenant_id.data = dns_settings.outbound_tenant_id or ""
+        form.outbound_client_id.data = dns_settings.outbound_client_id or ""
+        form.outbound_client_secret.data = ""  # never pre-fill secrets
+        form.outbound_mailbox.data = dns_settings.outbound_mailbox or ""
 
     return render_template("settings.html", form=form, dns_settings=dns_settings)

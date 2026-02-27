@@ -480,6 +480,12 @@ class DnsSettings(db.Model):
     graph_mailbox: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
     graph_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=False, nullable=False)
 
+    outbound_tenant_id: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    outbound_client_id: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    outbound_client_secret: db.Mapped[str | None] = db.mapped_column(db.String(500), nullable=True)
+    outbound_mailbox: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    outbound_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=False, nullable=False)
+
     # ------------------------------------------------------------------
     # Feature toggles (all default to True / enabled)
     # ------------------------------------------------------------------

@@ -247,20 +247,31 @@ def main() -> int:
 
             # ------------------------------------------------------------------
             # DMARC auto-fetch via Microsoft Graph API (if configured)
+            # F50: iterate over all DnsSettings rows with graph_enabled
+            # (global + per-org) so each org's Graph credentials are used.
             # ------------------------------------------------------------------
             try:
                 from app.models import DnsSettings
-                dns_settings = db.session.get(DnsSettings, 1)
-                if dns_settings and getattr(dns_settings, "graph_enabled", False):
+                graph_rows = db.session.execute(
+                    db.select(DnsSettings).where(DnsSettings.graph_enabled == True)
+                ).scalars().all()
+                if graph_rows:
                     from app.dmarc_reports.routes import run_graph_fetch
-                    imported, dupes = run_graph_fetch(flask_app)
-                    logger.info(
-                        "DMARC auto-fetch: %d imported, %d duplicates skipped",
-                        imported,
-                        dupes,
-                    )
+                    for gs in graph_rows:
+                        try:
+                            imported, dupes = run_graph_fetch(flask_app, dns_settings=gs)
+                            logger.info(
+                                "DMARC auto-fetch (org_id=%s): %d imported, %d duplicates skipped",
+                                gs.org_id,
+                                imported,
+                                dupes,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "DMARC auto-fetch failed for org_id=%s.", gs.org_id
+                            )
             except Exception:
-                logger.exception("DMARC auto-fetch failed.")
+                logger.exception("DMARC auto-fetch setup failed.")
 
     return 0
 

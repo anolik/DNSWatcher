@@ -16,12 +16,15 @@ import logging
 import os
 
 from flask import flash, redirect, render_template, request, url_for
-from flask_login import current_user, login_required
+from flask_login import current_user
 
 from app import db
 from app.ingest import bp
+from app.utils.auth import editor_required
 from app.ingest.parser import parse_import_file
-from app.models import DkimSelector, Domain
+from app.models import Domain
+from app.utils.domain import create_domain_with_selectors
+from app.utils.tenant import get_current_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -35,32 +38,9 @@ _MAX_UPLOAD_BYTES: int = 1 * 1024 * 1024
 # Allowed file extensions (lowercase, including the leading dot).
 _ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".txt", ".csv"})
 
-_DEFAULT_SELECTORS = [
-    "default",
-    "google",
-    "selector1",
-    "selector2",
-    "k1",
-    "dkim",
-    "mail",
-    "s1",
-    "s2",
-    "protonmail",
-]
-
-
-def _create_domain_with_selectors(hostname: str, user_id: int | None) -> Domain:
-    """Create a Domain plus default DkimSelector rows."""
-    domain = Domain(hostname=hostname, added_by=user_id, current_status="pending")
-    db.session.add(domain)
-    db.session.flush()
-    for sel_name in _DEFAULT_SELECTORS:
-        db.session.add(DkimSelector(domain_id=domain.id, selector=sel_name, is_active=True))
-    return domain
-
 
 @bp.route("/", methods=["GET", "POST"])
-@login_required
+@editor_required
 def index():
     """Render the domain import page and process uploaded files."""
     if request.method == "POST":
@@ -133,11 +113,16 @@ def index():
             )
             return redirect(url_for("ingest.index"))
 
-        # Determine which domains already exist
+        org_id = get_current_org_id()
+
+        # Determine which domains already exist in this org
         existing_hostnames: set[str] = set(
             row[0]
             for row in db.session.execute(
-                db.select(Domain.hostname).where(Domain.hostname.in_(parsed_domains))
+                db.select(Domain.hostname).where(
+                    Domain.hostname.in_(parsed_domains),
+                    Domain.org_id == org_id,
+                )
             ).all()
         )
 
@@ -150,7 +135,10 @@ def index():
                 # Check if inactive - reactivate if so
                 existing = (
                     db.session.execute(
-                        db.select(Domain).where(Domain.hostname == hostname)
+                        db.select(Domain).where(
+                            Domain.hostname == hostname,
+                            Domain.org_id == org_id,
+                        )
                     )
                     .scalars()
                     .first()
@@ -162,7 +150,7 @@ def index():
                 else:
                     skipped.append(hostname)
             else:
-                _create_domain_with_selectors(hostname, current_user.id)
+                create_domain_with_selectors(hostname, current_user.id, org_id)
                 added.append(hostname)
 
         db.session.commit()

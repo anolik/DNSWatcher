@@ -1,7 +1,8 @@
 """
-Settings blueprint routes - F22.
+Settings blueprint routes - F22 / F50.
 
-Provides a UI for managing DNS resolver configuration (DnsSettings singleton).
+Provides a UI for managing DNS resolver configuration.
+Settings are per-organization with a global (org_id=NULL) fallback.
 """
 
 from __future__ import annotations
@@ -10,66 +11,101 @@ import logging
 from datetime import datetime, timezone
 
 from flask import flash, redirect, render_template, url_for
-from flask_login import current_user, login_required
+from flask_login import current_user
 
 from app import db
 from app.settings import bp
 from app.settings.forms import DnsSettingsForm
 from app.models import DnsSettings
+from app.utils.auth import admin_required
+from app.utils.tenant import get_current_org_id, get_org_settings
 
 logger = logging.getLogger(__name__)
 
 
-@bp.route("/", methods=["GET", "POST"])
-@login_required
-def index():
-    """Render and process the DNS settings form."""
-    dns_settings = db.session.get(DnsSettings, 1)
+def _apply_form_to_settings(dns_settings: DnsSettings, form: DnsSettingsForm) -> list[str]:
+    """Copy all form field values onto a DnsSettings instance.
 
-    # Create the singleton row if it does not exist yet
-    if dns_settings is None:
-        dns_settings = DnsSettings(id=1)
+    Args:
+        dns_settings: The DnsSettings row to update.
+        form: The validated form.
+
+    Returns:
+        The parsed list of resolver IPs (for logging).
+    """
+    resolver_lines = [
+        line.strip()
+        for line in (form.resolvers.data or "").splitlines()
+        if line.strip()
+    ]
+    dns_settings.set_resolvers(resolver_lines)
+    dns_settings.timeout_seconds = float(form.timeout_seconds.data)
+    dns_settings.retries = form.retries.data
+    dns_settings.flap_threshold = form.flap_threshold.data
+    dns_settings.display_timezone = form.display_timezone.data
+    dns_settings.check_concurrency = form.check_concurrency.data
+    dns_settings.managed_domains = form.managed_domains.data or ""
+    dns_settings.check_spf_enabled = form.check_spf_enabled.data
+    dns_settings.check_dmarc_enabled = form.check_dmarc_enabled.data
+    dns_settings.check_dkim_enabled = form.check_dkim_enabled.data
+    dns_settings.check_mx_enabled = form.check_mx_enabled.data
+    dns_settings.check_reputation_enabled = form.check_reputation_enabled.data
+    dns_settings.check_registrar_enabled = form.check_registrar_enabled.data
+    dns_settings.check_geolocation_enabled = form.check_geolocation_enabled.data
+    dns_settings.check_mta_sts_enabled = form.check_mta_sts_enabled.data
+    dns_settings.check_bimi_enabled = form.check_bimi_enabled.data
+    dns_settings.check_tls_enabled = form.check_tls_enabled.data
+    dns_settings.data_retention_days = form.data_retention_days.data
+    dns_settings.graph_enabled = form.graph_enabled.data
+    dns_settings.graph_tenant_id = (form.graph_tenant_id.data or "").strip() or None
+    dns_settings.graph_client_id = (form.graph_client_id.data or "").strip() or None
+    dns_settings.graph_client_secret = (form.graph_client_secret.data or "").strip() or None
+    dns_settings.graph_mailbox = (form.graph_mailbox.data or "").strip() or None
+    dns_settings.updated_at = datetime.now(timezone.utc)
+    dns_settings.updated_by = current_user.id
+    return resolver_lines
+
+
+@bp.route("/", methods=["GET", "POST"])
+@admin_required
+def index():
+    """Render and process the DNS settings form.
+
+    F50 - Per-Organization DnsSettings:
+      * On GET, load org-specific settings first; fall back to global defaults.
+      * On POST/save, create a new org-specific row if the user was viewing
+        inherited global defaults.  The global row (org_id=NULL) is never
+        modified by an org-admin save.
+    """
+    org_id = get_current_org_id()
+
+    # Load settings with org-specific > global fallback
+    dns_settings = get_org_settings(org_id)
+
+    # Track whether we are inheriting from global (need to create org copy on save)
+    using_global = dns_settings.org_id != org_id and org_id is not None
+
+    # If no settings exist at all, create the global default row
+    if not db.inspect(dns_settings).persistent:
+        dns_settings.org_id = None
         db.session.add(dns_settings)
         db.session.flush()
+        using_global = org_id is not None
 
     form = DnsSettingsForm()
 
     if form.validate_on_submit():
-        # Parse the textarea into a list of IPs
-        resolver_lines = [
-            line.strip()
-            for line in (form.resolvers.data or "").splitlines()
-            if line.strip()
-        ]
-        dns_settings.set_resolvers(resolver_lines)
-        dns_settings.timeout_seconds = float(form.timeout_seconds.data)
-        dns_settings.retries = form.retries.data
-        dns_settings.flap_threshold = form.flap_threshold.data
-        dns_settings.display_timezone = form.display_timezone.data
-        dns_settings.check_concurrency = form.check_concurrency.data
-        dns_settings.managed_domains = form.managed_domains.data or ""
-        dns_settings.check_spf_enabled = form.check_spf_enabled.data
-        dns_settings.check_dmarc_enabled = form.check_dmarc_enabled.data
-        dns_settings.check_dkim_enabled = form.check_dkim_enabled.data
-        dns_settings.check_mx_enabled = form.check_mx_enabled.data
-        dns_settings.check_reputation_enabled = form.check_reputation_enabled.data
-        dns_settings.check_registrar_enabled = form.check_registrar_enabled.data
-        dns_settings.check_geolocation_enabled = form.check_geolocation_enabled.data
-        dns_settings.check_mta_sts_enabled = form.check_mta_sts_enabled.data
-        dns_settings.check_bimi_enabled = form.check_bimi_enabled.data
-        dns_settings.check_tls_enabled = form.check_tls_enabled.data
-        dns_settings.data_retention_days = form.data_retention_days.data
-        dns_settings.graph_enabled = form.graph_enabled.data
-        dns_settings.graph_tenant_id = (form.graph_tenant_id.data or "").strip() or None
-        dns_settings.graph_client_id = (form.graph_client_id.data or "").strip() or None
-        dns_settings.graph_client_secret = (form.graph_client_secret.data or "").strip() or None
-        dns_settings.graph_mailbox = (form.graph_mailbox.data or "").strip() or None
-        dns_settings.updated_at = datetime.now(timezone.utc)
-        dns_settings.updated_by = current_user.id
+        if using_global:
+            # Create an org-specific copy instead of modifying the global row
+            dns_settings = DnsSettings(org_id=org_id)
+            db.session.add(dns_settings)
+
+        resolver_lines = _apply_form_to_settings(dns_settings, form)
         db.session.commit()
         logger.info(
-            "DNS settings updated: resolvers=%r timeout=%.1fs retries=%d "
+            "DNS settings updated (org_id=%s): resolvers=%r timeout=%.1fs retries=%d "
             "flap_threshold=%d timezone=%s concurrency=%d user=%r",
+            dns_settings.org_id,
             resolver_lines,
             dns_settings.timeout_seconds,
             dns_settings.retries,

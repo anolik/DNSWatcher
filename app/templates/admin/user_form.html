@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit User' if is_edit else 'New User' }} – DNS Watcher{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto space-y-4">
+  <h1 class="text-2xl font-bold text-light-content-primary dark:text-content-primary">
+    <i class="bi {{ 'bi-pencil' if is_edit else 'bi-person-plus' }} mr-2"></i>
+    {{ 'Edit User: ' + user.username if is_edit else 'Create New User' }}
+  </h1>
+
+  <div class="mica-card p-5">
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+
+      {% if not is_edit %}
+      <div class="mb-4">
+        <label for="{{ form.username.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.username.label.text }}</label>
+        {{ form.username(class="mica-input") }}
+        {% for error in form.username.errors %}<p class="mt-1 text-xs text-status-danger">{{ error }}</p>{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="mb-4">
+        <label for="{{ form.email.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.email.label.text }}</label>
+        {{ form.email(class="mica-input") }}
+        {% for error in form.email.errors %}<p class="mt-1 text-xs text-status-danger">{{ error }}</p>{% endfor %}
+      </div>
+
+      <div class="mb-4">
+        <label for="{{ form.full_name.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.full_name.label.text }}</label>
+        {{ form.full_name(class="mica-input") }}
+      </div>
+
+      {% if not is_edit %}
+      <div class="mb-4">
+        <label for="{{ form.password.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.password.label.text }}</label>
+        {{ form.password(class="mica-input") }}
+        <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">Minimum 8 characters</p>
+        {% for error in form.password.errors %}<p class="mt-1 text-xs text-status-danger">{{ error }}</p>{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="mb-4">
+        <label for="{{ form.role.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.role.label.text }}</label>
+        {{ form.role(class="mica-input") }}
+      </div>
+
+      {% if user_is_superadmin %}
+      <div class="mb-4">
+        <label for="{{ form.org_id.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.org_id.label.text }}</label>
+        {{ form.org_id(class="mica-input") }}
+      </div>
+      {% endif %}
+
+      {% if is_edit %}
+      <div class="mb-4 flex items-center gap-2">
+        {{ form.is_active(class="rounded") }}
+        <label for="{{ form.is_active.id }}" class="text-sm font-semibold text-light-content-primary dark:text-content-primary">{{ form.is_active.label.text }}</label>
+      </div>
+      {% endif %}
+
+      <div class="flex gap-3">
+        {{ form.submit(class="btn-primary") }}
+        <a href="{{ url_for('admin.users') }}" class="btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

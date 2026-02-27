@@ -42,6 +42,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Password for the new admin account (prompted if omitted).",
     )
+    parser.add_argument(
+        "--email",
+        type=str,
+        default=None,
+        help="Email for the new admin account (prompted if omitted).",
+    )
     return parser.parse_args()
 
 
@@ -73,13 +79,22 @@ def prompt_password() -> str:
         return password
 
 
+def prompt_email() -> str:
+    """Prompt for and return a non-empty email address."""
+    while True:
+        email = input("Email: ").strip()
+        if email and "@" in email:
+            return email
+        print("Please enter a valid email address.")
+
+
 # ---------------------------------------------------------------------------
 # Main logic
 # ---------------------------------------------------------------------------
 
 
-def create_admin(username: str, password: str) -> None:
-    """Create the admin user inside the Flask application context."""
+def create_admin(username: str, password: str, email: str) -> None:
+    """Create the superadmin user inside the Flask application context."""
     if len(password) < 8:
         print("ERROR: Password must be at least 8 characters.", file=sys.stderr)
         sys.exit(1)
@@ -99,12 +114,14 @@ def create_admin(username: str, password: str) -> None:
         user = User(
             username=username,
             password_hash=generate_password_hash(password),
+            email=email,
+            role="superadmin",
             is_active=True,
         )
         db.session.add(user)
         db.session.commit()
 
-        print(f"Admin user '{username}' created successfully (id={user.id}).")
+        print(f"Superadmin user '{username}' created successfully (id={user.id}, role=superadmin).")
 
 
 def main() -> None:
@@ -112,8 +129,9 @@ def main() -> None:
 
     username: str = args.username if args.username else prompt_username()
     password: str = args.password if args.password else prompt_password()
+    email: str = args.email if args.email else prompt_email()
 
-    create_admin(username, password)
+    create_admin(username, password, email)
 
 
 if __name__ == "__main__":

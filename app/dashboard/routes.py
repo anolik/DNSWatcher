@@ -23,7 +23,10 @@ from app import db
 from app.dashboard import bp
 from app.dashboard.forms import AddDomainForm, AddSelectorForm
 from app.models import DkimSelector, DmarcReport, DnsSettings, Domain
+from app.utils.auth import editor_required
+from app.utils.domain import DEFAULT_SELECTORS, create_domain_with_selectors
 from app.utils.rate_limit import is_rate_limited
+from app.utils.tenant import get_current_org_id, get_org_settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,31 +37,6 @@ logger = logging.getLogger(__name__)
 _HOSTNAME_RE = re.compile(
     r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$"
 )
-
-_DEFAULT_SELECTORS = [
-    "default",
-    "google",
-    "selector1",
-    "selector2",
-    "k1",
-    "dkim",
-    "mail",
-    "s1",
-    "s2",
-    "protonmail",
-]
-
-
-def _create_domain_with_selectors(hostname: str, user_id: int | None) -> Domain:
-    """Create a Domain row plus the 10 default DkimSelector rows."""
-    domain = Domain(hostname=hostname, added_by=user_id, current_status="pending")
-    db.session.add(domain)
-    db.session.flush()  # populate domain.id before creating selectors
-
-    for sel_name in _DEFAULT_SELECTORS:
-        db.session.add(DkimSelector(domain_id=domain.id, selector=sel_name, is_active=True))
-
-    return domain
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +52,9 @@ def index():
 
     domains = (
         db.session.execute(
-            db.select(Domain).where(Domain.is_active == True).order_by(Domain.hostname)
+            db.select(Domain)
+            .where(Domain.is_active == True, Domain.org_id == get_current_org_id())
+            .order_by(Domain.hostname)
         )
         .scalars()
         .all()
@@ -85,7 +65,7 @@ def index():
         key = domain.current_status if domain.current_status in status_counts else "pending"
         status_counts[key] += 1
 
-    dns_settings = db.session.get(DnsSettings, 1)
+    dns_settings = get_org_settings(get_current_org_id())
     managed_set = dns_settings.get_managed_domains() if dns_settings else set()
 
     return render_template(
@@ -103,7 +83,7 @@ def index():
 
 
 @bp.route("/domains/add", methods=["POST"])
-@login_required
+@editor_required
 def add_domain():
     """Add a new domain (or reactivate an existing inactive one)."""
     add_form = AddDomainForm()
@@ -114,10 +94,15 @@ def add_domain():
         return redirect(url_for("dashboard.index"))
 
     hostname = (add_form.hostname.data or "").strip().lower()
+    org_id = get_current_org_id()
 
-    # Check for existing domain (active or inactive)
+    # Check for existing domain (active or inactive) within this org
     existing: Domain | None = (
-        db.session.execute(db.select(Domain).where(Domain.hostname == hostname))
+        db.session.execute(
+            db.select(Domain).where(
+                Domain.hostname == hostname, Domain.org_id == org_id
+            )
+        )
         .scalars()
         .first()
     )
@@ -142,15 +127,15 @@ def add_domain():
             flash(f"Domain '{hostname}' has been reactivated.", "success")
         return redirect(url_for("dashboard.index"))
 
-    _create_domain_with_selectors(hostname, current_user.id)
+    create_domain_with_selectors(hostname, current_user.id, org_id)
     db.session.commit()
     logger.info(
         "Domain added: hostname=%r user=%r selectors=%d",
         hostname,
         current_user.username,
-        len(_DEFAULT_SELECTORS),
+        len(DEFAULT_SELECTORS),
     )
-    flash(f"Domain '{hostname}' added with {len(_DEFAULT_SELECTORS)} default DKIM selectors.", "success")
+    flash(f"Domain '{hostname}' added with {len(DEFAULT_SELECTORS)} default DKIM selectors.", "success")
     return redirect(url_for("dashboard.index"))
 
 
@@ -160,11 +145,11 @@ def add_domain():
 
 
 @bp.route("/domains/<int:domain_id>/delete", methods=["POST"])
-@login_required
+@editor_required
 def delete_domain(domain_id: int):
     """Soft-delete a domain by setting is_active=False."""
     domain = db.session.get(Domain, domain_id)
-    if domain is None or not domain.is_active:
+    if domain is None or not domain.is_active or domain.org_id != get_current_org_id():
         abort(404)
 
     domain.is_active = False
@@ -185,11 +170,13 @@ def delete_domain(domain_id: int):
 
 
 @bp.route("/domains/<int:domain_id>/check", methods=["POST"])
-@login_required
+@editor_required
 def check_domain(domain_id: int):
     """Trigger a manual check for a single domain."""
     domain = db.session.get(Domain, domain_id)
     if domain is None or not domain.is_active:
+        abort(404)
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
         abort(404)
 
     # Rate limit: allow at most one manual check per domain per 60 seconds.
@@ -228,7 +215,7 @@ def check_domain(domain_id: int):
 
 
 @bp.route("/domains/check-all", methods=["POST"])
-@login_required
+@editor_required
 def check_all_domains():
     """Trigger manual checks for all active domains in a background thread.
 
@@ -297,6 +284,8 @@ def domain_detail(domain_id: int):
     domain = db.session.get(Domain, domain_id)
     if domain is None:
         abort(404)
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
+        abort(404)
 
     latest_result = domain.check_results.first()
 
@@ -355,11 +344,13 @@ def domain_detail(domain_id: int):
 
 
 @bp.route("/domains/<int:domain_id>/selectors", methods=["GET", "POST"])
-@login_required
+@editor_required
 def domain_selectors(domain_id: int):
     """Manage DKIM selectors for a domain."""
     domain = db.session.get(Domain, domain_id)
     if domain is None:
+        abort(404)
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
         abort(404)
 
     add_form = AddSelectorForm()
@@ -414,7 +405,7 @@ def domain_selectors(domain_id: int):
 
 
 @bp.route("/selectors/<int:selector_id>/toggle", methods=["POST"])
-@login_required
+@editor_required
 def toggle_selector(selector_id: int):
     """Toggle the is_active flag on a DKIM selector."""
     selector = db.session.get(DkimSelector, selector_id)

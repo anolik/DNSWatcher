@@ -29,6 +29,7 @@ tzdata>=2024.1
 
 # WTForms (pulled in by Flask-WTF; listed explicitly for clarity)
 WTForms>=3.1.0
+email-validator>=2.0.0
 
 # Production WSGI server
 gunicorn>=22.0.0

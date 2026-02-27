@@ -17,6 +17,7 @@ from flask_login import current_user, login_required
 from app import db
 from app.api import bp
 from app.models import CheckResult, DmarcReport, Domain
+from app.utils.tenant import get_current_org_id
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +66,9 @@ def domains():
     """Return a JSON list of all active domains and their current status."""
     domain_list = (
         db.session.execute(
-            db.select(Domain).where(Domain.is_active == True).order_by(Domain.hostname)
+            db.select(Domain)
+            .where(Domain.is_active == True, Domain.org_id == get_current_org_id())
+            .order_by(Domain.hostname)
         )
         .scalars()
         .all()
@@ -102,6 +105,13 @@ def domain_history(domain_id: int):
     Each data point represents a single check. The value is 1 if the overall
     status matches that category, 0 otherwise. This enables stacked bar charts.
     """
+    # Verify domain belongs to current org
+    domain = db.session.get(Domain, domain_id)
+    if domain is None:
+        return jsonify({"error": "Domain not found"}), 404
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
+        return jsonify({"error": "Domain not found"}), 404
+
     limit = request.args.get("limit", 30, type=int)
     limit = min(limit, 100)  # Cap at 100
 
@@ -148,6 +158,8 @@ def domain_status(domain_id: int):
     """Return the current status breakdown for a single domain."""
     domain = db.session.get(Domain, domain_id)
     if domain is None:
+        return jsonify({"error": "Domain not found"}), 404
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
         return jsonify({"error": "Domain not found"}), 404
 
     latest_result = (
@@ -197,7 +209,9 @@ def dashboard_summary():
     """
     domain_list = (
         db.session.execute(
-            db.select(Domain).where(Domain.is_active == True)
+            db.select(Domain).where(
+                Domain.is_active == True, Domain.org_id == get_current_org_id()
+            )
         )
         .scalars()
         .all()
@@ -229,6 +243,7 @@ def dmarc_trends():
     Returns at most 90 days of data, sorted chronologically.
     """
     domain_filter: str = request.args.get("domain", "").strip()
+    org_id = get_current_org_id()
 
     query = (
         db.select(
@@ -236,6 +251,7 @@ def dmarc_trends():
             db.func.sum(DmarcReport.pass_count).label("pass_total"),
             db.func.sum(DmarcReport.fail_count).label("fail_total"),
         )
+        .where(DmarcReport.org_id == org_id)
         .group_by(db.func.date(DmarcReport.begin_date))
         .order_by(db.func.date(DmarcReport.begin_date).asc())
     )

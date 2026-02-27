@@ -12,12 +12,13 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 
-from flask import current_app, render_template, request
-from flask_login import login_required
+from flask import abort, current_app, render_template, request
+from flask_login import current_user, login_required
 
 from app import db
 from app.history import bp
 from app.models import ChangeLog, CheckResult, DnsSettings, Domain
+from app.utils.tenant import get_current_org_id, get_org_settings
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +37,7 @@ def index():
     query = (
         db.select(ChangeLog)
         .join(Domain, ChangeLog.domain_id == Domain.id)
+        .where(Domain.org_id == get_current_org_id())
         .order_by(ChangeLog.detected_at.desc())
     )
 
@@ -63,8 +65,8 @@ def domain_history(domain_id: int):
     """Render the check history timeline and change log for a single domain."""
     domain = db.session.get(Domain, domain_id)
     if domain is None:
-        from flask import abort
-
+        abort(404)
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
         abort(404)
 
     # Last 30 check results for the chart
@@ -112,23 +114,30 @@ def health_page():
     """Render the system health and diagnostics page."""
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    org_id = get_current_org_id()
 
-    # Total domains
+    # Total domains (scoped to org)
     total_domains = db.session.execute(
-        db.select(db.func.count(Domain.id)).where(Domain.is_active == True)
+        db.select(db.func.count(Domain.id)).where(
+            Domain.is_active == True, Domain.org_id == org_id
+        )
     ).scalar() or 0
 
-    # Domains checked today
+    # Domains checked today (scoped to org)
     checked_today = db.session.execute(
         db.select(db.func.count(Domain.id)).where(
             Domain.is_active == True,
+            Domain.org_id == org_id,
             Domain.last_checked_at >= today_start,
         )
     ).scalar() or 0
 
-    # DNS errors today (check results with non-empty dns_errors)
+    # DNS errors today (scoped to org via Domain join)
     errors_today = db.session.execute(
-        db.select(db.func.count(CheckResult.id)).where(
+        db.select(db.func.count(CheckResult.id))
+        .join(Domain, CheckResult.domain_id == Domain.id)
+        .where(
+            Domain.org_id == org_id,
             CheckResult.checked_at >= today_start,
             CheckResult.dns_errors.isnot(None),
             CheckResult.dns_errors != "[]",
@@ -178,16 +187,17 @@ def health_page():
             except OSError:
                 db_size = None
 
-    # DNS resolvers and their status
-    dns_settings = db.session.get(DnsSettings, 1)
+    # DNS resolvers and their status (org-aware)
+    dns_settings = get_org_settings(org_id)
     resolvers = dns_settings.get_resolvers() if dns_settings else ["8.8.8.8", "1.1.1.1"]
     resolver_statuses = _check_resolver_reachability(resolvers)
 
-    # Last 50 check events
+    # Last 50 check events (scoped to org)
     recent_checks = (
         db.session.execute(
             db.select(CheckResult)
             .join(Domain, CheckResult.domain_id == Domain.id)
+            .where(Domain.org_id == org_id)
             .order_by(CheckResult.checked_at.desc())
             .limit(50)
         )

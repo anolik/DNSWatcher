@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Organizations – DNS Watcher{% endblock %}
+{% block content %}
+<div class="space-y-4">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-building mr-2"></i>Organizations
+    </h1>
+    <div class="flex items-center gap-3">
+      <a href="{{ url_for('admin.users') }}" class="btn-secondary text-sm">
+        <i class="bi bi-people mr-1"></i>Users
+      </a>
+      <a href="{{ url_for('admin.create_org') }}" class="btn-primary">
+        <i class="bi bi-plus-circle mr-1"></i>New Organization
+      </a>
+    </div>
+  </div>
+
+  <div class="mica-card overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50 dark:bg-surface-raised border-b border-light-surface-border/20 dark:border-surface-border/10">
+            <th class="px-4 py-3 text-left font-semibold text-light-content-secondary dark:text-content-secondary">Name</th>
+            <th class="px-4 py-3 text-left font-semibold text-light-content-secondary dark:text-content-secondary">Slug</th>
+            <th class="px-4 py-3 text-center font-semibold text-light-content-secondary dark:text-content-secondary">Status</th>
+            <th class="px-4 py-3 text-center font-semibold text-light-content-secondary dark:text-content-secondary">Max Domains</th>
+            <th class="px-4 py-3 text-center font-semibold text-light-content-secondary dark:text-content-secondary">Users</th>
+            <th class="px-4 py-3 text-center font-semibold text-light-content-secondary dark:text-content-secondary">Domains</th>
+            <th class="px-4 py-3 text-left font-semibold text-light-content-secondary dark:text-content-secondary">Created</th>
+            <th class="px-4 py-3 text-center font-semibold text-light-content-secondary dark:text-content-secondary">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-light-surface-border/10 dark:divide-surface-border/10">
+          {% for org in orgs %}
+          <tr class="hover:bg-gray-50/50 dark:hover:bg-surface-raised/50">
+            <td class="px-4 py-3 font-medium text-light-content-primary dark:text-content-primary">
+              <i class="bi bi-building mr-1 text-light-content-muted dark:text-content-muted"></i>
+              {{ org.name }}
+              {% if org.slug == 'default' %}
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 ml-1">default</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-light-content-secondary dark:text-content-secondary">
+              <code class="text-xs bg-gray-100 dark:bg-surface-raised px-1.5 py-0.5 rounded">{{ org.slug }}</code>
+            </td>
+            <td class="px-4 py-3 text-center">
+              {% if org.is_active %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">Active</span>
+              {% else %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300">Inactive</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 text-center text-light-content-secondary dark:text-content-secondary">
+              {{ org.max_domains }}
+            </td>
+            <td class="px-4 py-3 text-center text-light-content-secondary dark:text-content-secondary">
+              {{ org_stats[org.id].users }}
+            </td>
+            <td class="px-4 py-3 text-center text-light-content-secondary dark:text-content-secondary">
+              {{ org_stats[org.id].domains }}
+            </td>
+            <td class="px-4 py-3 text-light-content-muted dark:text-content-muted text-xs">
+              {{ org.created_at|timeago if org.created_at else '—' }}
+            </td>
+            <td class="px-4 py-3 text-center space-x-2">
+              <a href="{{ url_for('admin.edit_org', org_id=org.id) }}"
+                 class="text-primary-500 hover:text-primary-600 text-xs">
+                <i class="bi bi-pencil"></i> Edit
+              </a>
+              {% if org.slug != 'default' %}
+              <form method="POST" action="{{ url_for('admin.toggle_org_active', org_id=org.id) }}" class="inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="text-xs {{ 'text-status-danger hover:text-red-600' if org.is_active else 'text-green-600 hover:text-green-700' }}">
+                  <i class="bi {{ 'bi-pause-circle' if org.is_active else 'bi-play-circle' }}"></i>
+                  {{ 'Deactivate' if org.is_active else 'Activate' }}
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

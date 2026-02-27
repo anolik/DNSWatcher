@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit Organization' if is_edit else 'New Organization' }} – DNS Watcher{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto space-y-4">
+  <h1 class="text-2xl font-bold text-light-content-primary dark:text-content-primary">
+    <i class="bi {{ 'bi-pencil' if is_edit else 'bi-plus-circle' }} mr-2"></i>
+    {{ 'Edit Organization: ' + org.name if is_edit else 'Create New Organization' }}
+  </h1>
+
+  <div class="mica-card p-5">
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+
+      <div class="mb-4">
+        <label for="{{ form.name.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.name.label.text }}</label>
+        {{ form.name(class="mica-input", id="org-name-input") }}
+        {% for error in form.name.errors %}<p class="mt-1 text-xs text-status-danger">{{ error }}</p>{% endfor %}
+      </div>
+
+      {% if not is_edit %}
+      <div class="mb-4">
+        <label for="{{ form.slug.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.slug.label.text }}</label>
+        {{ form.slug(class="mica-input", id="org-slug-input", placeholder="my-org") }}
+        <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">URL-safe identifier (lowercase, hyphens). Auto-generated from name if left empty.</p>
+        {% for error in form.slug.errors %}<p class="mt-1 text-xs text-status-danger">{{ error }}</p>{% endfor %}
+      </div>
+      {% else %}
+      <div class="mb-4">
+        <label class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">Slug</label>
+        <p class="mica-input bg-gray-50 dark:bg-surface-raised text-light-content-muted dark:text-content-muted cursor-not-allowed">{{ org.slug }}</p>
+        <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">Slug cannot be changed after creation.</p>
+      </div>
+      {% endif %}
+
+      <div class="mb-4">
+        <label for="{{ form.max_domains.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.max_domains.label.text }}</label>
+        {{ form.max_domains(class="mica-input", type="number", min="1", max="10000") }}
+        <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">Maximum number of domains this organization can monitor.</p>
+        {% for error in form.max_domains.errors %}<p class="mt-1 text-xs text-status-danger">{{ error }}</p>{% endfor %}
+      </div>
+
+      <div class="mb-4">
+        <label for="{{ form.notes.id }}" class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">{{ form.notes.label.text }}</label>
+        {{ form.notes(class="mica-input", rows="3") }}
+        {% for error in form.notes.errors %}<p class="mt-1 text-xs text-status-danger">{{ error }}</p>{% endfor %}
+      </div>
+
+      {% if is_edit %}
+      <div class="mb-4 flex items-center gap-2">
+        {{ form.is_active(class="rounded") }}
+        <label for="{{ form.is_active.id }}" class="text-sm font-semibold text-light-content-primary dark:text-content-primary">{{ form.is_active.label.text }}</label>
+        {% if org.slug == 'default' %}
+        <span class="text-xs text-light-content-muted dark:text-content-muted">(Default organization cannot be deactivated)</span>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <div class="flex gap-3">
+        {{ form.submit(class="btn-primary") }}
+        <a href="{{ url_for('admin.orgs') }}" class="btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if not is_edit %}
+<script>
+  (function(){
+    var nameInput = document.getElementById("org-name-input");
+    var slugInput = document.getElementById("org-slug-input");
+    if (!nameInput || !slugInput) return;
+
+    var userEditedSlug = false;
+
+    slugInput.addEventListener("input", function(){
+      userEditedSlug = true;
+    });
+
+    nameInput.addEventListener("input", function(){
+      if (userEditedSlug) return;
+      var name = nameInput.value;
+      var slug = name.toLowerCase().trim()
+        .replace(/[^\w\s-]/g, "")
+        .replace(/[\s_]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      slugInput.value = slug;
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

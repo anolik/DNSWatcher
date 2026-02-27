@@ -27,26 +27,85 @@ def _utcnow() -> datetime:
 
 
 # ---------------------------------------------------------------------------
+# Organization
+# ---------------------------------------------------------------------------
+
+
+class Organization(db.Model):
+    """A tenant organization grouping users and domains."""
+
+    __tablename__ = "organizations"
+
+    id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True)
+    name: db.Mapped[str] = db.mapped_column(db.String(200), unique=True, nullable=False)
+    slug: db.Mapped[str] = db.mapped_column(db.String(100), unique=True, nullable=False)
+    is_active: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    created_at: db.Mapped[datetime] = db.mapped_column(
+        db.DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_by: db.Mapped[int | None] = db.mapped_column(
+        db.Integer, db.ForeignKey("users.id"), nullable=True
+    )
+    max_domains: db.Mapped[int] = db.mapped_column(db.Integer, default=100, nullable=False)
+    notes: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+
+    # ------------------------------------------------------------------
+    # Relationships
+    # ------------------------------------------------------------------
+    users: db.Mapped[list[User]] = db.relationship(
+        "User", back_populates="org", foreign_keys="User.org_id", lazy="dynamic"
+    )
+    domains: db.Mapped[list[Domain]] = db.relationship(
+        "Domain", back_populates="org", foreign_keys="Domain.org_id", lazy="dynamic"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Organization id={self.id} name={self.name!r} slug={self.slug!r}>"
+
+
+# ---------------------------------------------------------------------------
 # User
 # ---------------------------------------------------------------------------
 
 
 class User(UserMixin, db.Model):
-    """Application user with hashed password storage."""
+    """Application user with hashed password storage and role-based access."""
 
     __tablename__ = "users"
+
+    ROLE_SUPERADMIN = "superadmin"
+    ROLE_ADMIN = "admin"
+    ROLE_EDITOR = "editor"
+    ROLE_VIEWER = "viewer"
+    VALID_ROLES = (ROLE_SUPERADMIN, ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER)
 
     id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True, autoincrement=True)
     username: db.Mapped[str] = db.mapped_column(db.String(80), unique=True, nullable=False)
     password_hash: db.Mapped[str] = db.mapped_column(db.String(256), nullable=False)
+    email: db.Mapped[str | None] = db.mapped_column(db.String(255), unique=True, nullable=True)
+    full_name: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    role: db.Mapped[str] = db.mapped_column(db.String(20), default=ROLE_VIEWER, nullable=False)
+    language: db.Mapped[str] = db.mapped_column(db.String(5), default="fr", nullable=False)
+    last_login_at: db.Mapped[datetime | None] = db.mapped_column(
+        db.DateTime(timezone=True), nullable=True
+    )
+    updated_at: db.Mapped[datetime | None] = db.mapped_column(
+        db.DateTime(timezone=True), nullable=True
+    )
     created_at: db.Mapped[datetime] = db.mapped_column(
         db.DateTime(timezone=True), default=_utcnow, nullable=False
     )
     is_active: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
+    org_id: db.Mapped[int | None] = db.mapped_column(
+        db.Integer, db.ForeignKey("organizations.id"), nullable=True
+    )
 
     # ------------------------------------------------------------------
     # Relationships
     # ------------------------------------------------------------------
+    org: db.Mapped[Organization | None] = db.relationship(
+        "Organization", back_populates="users", foreign_keys=[org_id]
+    )
     domains: db.Mapped[list[Domain]] = db.relationship(
         "Domain", foreign_keys="Domain.added_by", back_populates="added_by_user", lazy="dynamic"
     )
@@ -63,8 +122,27 @@ class User(UserMixin, db.Model):
         """Return True if *password* matches the stored hash."""
         return check_password_hash(self.password_hash, password)
 
+    # ------------------------------------------------------------------
+    # Role helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def is_superadmin(self) -> bool:
+        """Return True if user has superadmin role."""
+        return self.role == self.ROLE_SUPERADMIN
+
+    @property
+    def is_admin(self) -> bool:
+        """Return True if user has admin or superadmin role."""
+        return self.role in (self.ROLE_SUPERADMIN, self.ROLE_ADMIN)
+
+    @property
+    def is_editor(self) -> bool:
+        """Return True if user has editor, admin, or superadmin role."""
+        return self.role in (self.ROLE_SUPERADMIN, self.ROLE_ADMIN, self.ROLE_EDITOR)
+
     def __repr__(self) -> str:
-        return f"<User id={self.id} username={self.username!r}>"
+        return f"<User id={self.id} username={self.username!r} role={self.role!r}>"
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +159,9 @@ class Domain(db.Model):
     hostname: db.Mapped[str] = db.mapped_column(db.String(255), unique=True, nullable=False)
     added_by: db.Mapped[int | None] = db.mapped_column(
         db.Integer, db.ForeignKey("users.id"), nullable=True
+    )
+    org_id: db.Mapped[int | None] = db.mapped_column(
+        db.Integer, db.ForeignKey("organizations.id"), nullable=True, index=True
     )
     added_at: db.Mapped[datetime] = db.mapped_column(
         db.DateTime(timezone=True), default=_utcnow, nullable=False
@@ -102,6 +183,9 @@ class Domain(db.Model):
     # ------------------------------------------------------------------
     added_by_user: db.Mapped[User | None] = db.relationship(
         "User", foreign_keys=[added_by], back_populates="domains"
+    )
+    org: db.Mapped[Organization | None] = db.relationship(
+        "Organization", back_populates="domains", foreign_keys=[org_id]
     )
     dkim_selectors: db.Mapped[list[DkimSelector]] = db.relationship(
         "DkimSelector",
@@ -360,11 +444,14 @@ class ChangeLog(db.Model):
 
 
 class DnsSettings(db.Model):
-    """Global DNS resolver configuration (singleton - always id=1)."""
+    """DNS resolver configuration. Per-org with global default (org_id=NULL)."""
 
     __tablename__ = "dns_settings"
 
     id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True, default=1)
+    org_id: db.Mapped[int | None] = db.mapped_column(
+        db.Integer, db.ForeignKey("organizations.id"), nullable=True, index=True
+    )
     resolvers: db.Mapped[str] = db.mapped_column(
         db.Text,
         nullable=False,
@@ -502,6 +589,9 @@ class DmarcReport(db.Model):
     )
 
     id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True)
+    org_id: db.Mapped[int | None] = db.mapped_column(
+        db.Integer, db.ForeignKey("organizations.id"), nullable=True, index=True
+    )
     report_id: db.Mapped[str] = db.mapped_column(db.String(200), nullable=False)
     org_name: db.Mapped[str] = db.mapped_column(db.String(200), nullable=False)
     policy_domain: db.Mapped[str] = db.mapped_column(db.String(255), nullable=False)

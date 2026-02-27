@@ -25,6 +25,7 @@ def apply_flap_logic(
     domain_id: int,
     check_type: str,
     raw_status: str,
+    settings: DnsSettings | None = None,
 ) -> str:
     """Apply anti-flap logic to a check result.
 
@@ -32,6 +33,9 @@ def apply_flap_logic(
         domain_id: The domain ID the check was performed on.
         check_type: The type of check ("spf", "dmarc", "dkim", "reputation").
         raw_status: The raw status from the checker ("ok", "warning", "critical", "error").
+        settings: Optional DnsSettings instance to read the flap_threshold from.
+            When provided, avoids an extra database query.  When None, falls
+            back to loading the global settings via ``get_org_settings(None)``.
 
     Returns:
         The adjusted status after applying flap logic. A "critical" or "error"
@@ -54,8 +58,10 @@ def apply_flap_logic(
         )
         db.session.add(flap_state)
 
-    # Load threshold from DnsSettings
-    settings = DnsSettings.query.get(1)
+    # Load threshold from DnsSettings (prefer caller-provided settings)
+    if settings is None:
+        from app.utils.tenant import get_org_settings  # noqa: PLC0415
+        settings = get_org_settings(None)
     threshold = settings.flap_threshold if settings else 2
 
     # Determine if this is a success or failure

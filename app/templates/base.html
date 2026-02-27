@@ -63,14 +63,16 @@
         {# Desktop nav links #}
         <div class="hidden md:flex items-center gap-1">
           {% set nav_items = [
-            ('dashboard.index', 'speedometer2', 'Dashboard', 'dashboard.'),
-            ('history.index', 'clock-history', 'Changes', 'history.'),
-            ('ingest.index', 'upload', 'Import', 'ingest.'),
-            ('dmarc_reports.index', 'file-earmark-text', 'DMARC', 'dmarc_reports.'),
-            ('settings.index', 'gear', 'Settings', 'settings.'),
-            ('history.health_page', 'heart-pulse', 'Health', None),
+            ('dashboard.index', 'speedometer2', 'Dashboard', 'dashboard.', false),
+            ('history.index', 'clock-history', 'Changes', 'history.', false),
+            ('ingest.index', 'upload', 'Import', 'ingest.', false),
+            ('dmarc_reports.index', 'file-earmark-text', 'DMARC', 'dmarc_reports.', false),
+            ('admin.users', 'people', 'Admin', 'admin.', true),
+            ('settings.index', 'gear', 'Settings', 'settings.', false),
+            ('history.health_page', 'heart-pulse', 'Health', None, false),
           ] %}
-          {% for endpoint_name, icon, label, prefix in nav_items %}
+          {% for endpoint_name, icon, label, prefix, admin_only in nav_items %}
+            {% if not admin_only or user_is_admin %}
             {% if prefix %}
               {% set is_active = request.endpoint and request.endpoint.startswith(prefix) %}
             {% else %}
@@ -86,6 +88,7 @@
                       {% endif %}">
               <i class="bi bi-{{ icon }} mr-1"></i>{{ label }}
             </a>
+            {% endif %}
           {% endfor %}
         </div>
 
@@ -104,10 +107,21 @@
             </svg>
           </button>
 
-          {# User info + logout #}
+          {# Current organization display #}
+          {% if current_org %}
+          <span class="hidden sm:inline text-xs text-light-content-muted dark:text-content-muted">
+            <i class="bi bi-building mr-1"></i>{{ current_org.name }}
+          </span>
+          {% endif %}
+
+          {# User info + profile + logout #}
           <span class="hidden sm:inline text-xs text-light-content-muted dark:text-content-muted">
             <i class="bi bi-person-circle mr-1"></i>{{ current_user.username }}
           </span>
+          <a href="{{ url_for('auth.profile') }}"
+             class="text-xs text-light-content-muted dark:text-content-muted hover:text-primary-500 transition-colors">
+            <i class="bi bi-person mr-1"></i>Profile
+          </a>
           <a href="{{ url_for('auth.logout') }}"
              class="text-xs text-light-content-muted dark:text-content-muted hover:text-status-danger transition-colors">
             <i class="bi bi-box-arrow-right mr-1"></i>Logout
@@ -125,7 +139,8 @@
 
       {# Mobile nav (hidden by default) #}
       <div id="mobile-nav" class="md:hidden hidden pb-3 border-t border-light-surface-border/20 dark:border-surface-border/10 mt-1 pt-2 space-y-1">
-        {% for endpoint_name, icon, label, prefix in nav_items %}
+        {% for endpoint_name, icon, label, prefix, admin_only in nav_items %}
+          {% if not admin_only or user_is_admin %}
           {% if prefix %}
             {% set is_active = request.endpoint and request.endpoint.startswith(prefix) %}
           {% else %}
@@ -141,6 +156,7 @@
                     {% endif %}">
             <i class="bi bi-{{ icon }} mr-2"></i>{{ label }}
           </a>
+          {% endif %}
         {% endfor %}
       </div>
     </div>

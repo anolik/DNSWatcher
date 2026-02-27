@@ -35,6 +35,7 @@ from app.checker.reputation import check_reputation
 from app.checker.spf import check_spf
 from app.checker.tls import check_tls
 from app.models import CheckResult, DkimSelector, DnsSettings, Domain
+from app.utils.tenant import get_org_settings
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +65,8 @@ def run_domain_check(
     start_time = time.monotonic()
     now = datetime.now(timezone.utc)
 
-    # Load DNS settings
-    settings = DnsSettings.query.get(1)
-    if settings is None:
-        settings = DnsSettings()
+    # Load DNS settings (per-org with global fallback)
+    settings = get_org_settings(domain.org_id)
 
     dns_errors: list[str] = []
     statuses: list[str] = []
@@ -78,7 +77,7 @@ def run_domain_check(
     if settings.check_spf_enabled:
         spf_result = _run_safe_check("spf", lambda: check_spf(domain.hostname, settings), dns_errors)
         spf_status_raw = spf_result.get("status", "error") if spf_result else "error"
-        spf_status = apply_flap_logic(domain.id, "spf", spf_status_raw)
+        spf_status = apply_flap_logic(domain.id, "spf", spf_status_raw, settings=settings)
         statuses.append(spf_status)
 
     # ---- DMARC check ----
@@ -87,7 +86,7 @@ def run_domain_check(
     if settings.check_dmarc_enabled:
         dmarc_result = _run_safe_check("dmarc", lambda: check_dmarc(domain.hostname, settings), dns_errors)
         dmarc_status_raw = dmarc_result.get("status", "error") if dmarc_result else "error"
-        dmarc_status = apply_flap_logic(domain.id, "dmarc", dmarc_status_raw)
+        dmarc_status = apply_flap_logic(domain.id, "dmarc", dmarc_status_raw, settings=settings)
         statuses.append(dmarc_status)
 
     # ---- MX check (run BEFORE DKIM to identify provider) ----
@@ -113,7 +112,7 @@ def run_domain_check(
             dns_errors,
         )
         dkim_status_raw = dkim_result.get("status", "error") if dkim_result else "error"
-        dkim_status = apply_flap_logic(domain.id, "dkim", dkim_status_raw)
+        dkim_status = apply_flap_logic(domain.id, "dkim", dkim_status_raw, settings=settings)
         statuses.append(dkim_status)
 
     # ---- Reputation check ----
@@ -126,7 +125,7 @@ def run_domain_check(
             dns_errors,
         )
         rep_status_raw = rep_result.get("status", "error") if rep_result else "error"
-        rep_status = apply_flap_logic(domain.id, "reputation", rep_status_raw)
+        rep_status = apply_flap_logic(domain.id, "reputation", rep_status_raw, settings=settings)
         statuses.append(rep_status)
 
     # ---- Registrar check (informational, does NOT affect overall status) ----
@@ -259,9 +258,11 @@ def run_all_checks(trigger_type: str = "scheduled") -> list[CheckResult]:
     active_domains = Domain.query.filter_by(is_active=True).all()
     total = len(active_domains)
 
-    # Read concurrency from settings (default 5)
-    settings = DnsSettings.query.get(1)
-    max_workers = settings.check_concurrency if settings else 5
+    # Read concurrency from global settings (default 5).
+    # Per-org concurrency is read inside run_domain_check for each domain,
+    # but the thread pool size is based on the global default.
+    global_settings = get_org_settings(None)
+    max_workers = global_settings.check_concurrency if global_settings else 5
     max_workers = max(1, min(max_workers, 10))  # clamp 1..10
 
     logger.info(

@@ -22,16 +22,15 @@ logger = logging.getLogger(__name__)
 
 
 def _load_settings() -> DnsSettings:
-    """Load DnsSettings singleton from database.
+    """Load global DnsSettings from database.
 
     Returns a DnsSettings instance, falling back to a transient default
-    if no row exists in the database.
+    if no row exists in the database.  This is only used as a safety net
+    when no settings object is passed by the caller (the normal path in
+    run_domain_check already loads per-org settings).
     """
-    settings = DnsSettings.query.get(1)
-    if settings is None:
-        logger.warning("DnsSettings row id=1 not found; using in-memory defaults")
-        settings = DnsSettings()
-    return settings
+    from app.utils.tenant import get_org_settings  # noqa: PLC0415
+    return get_org_settings(None)
 
 
 def create_resolver(settings: DnsSettings) -> dns.resolver.Resolver:

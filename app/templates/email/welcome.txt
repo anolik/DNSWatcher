@@ -1,0 +1,13 @@
+Hello {{ user.full_name or user.username }},
+
+Your DNS Watcher account has been created.
+
+Username: {{ user.username }}
+Role: {{ user.role | capitalize }}
+
+To get started, log in at the following URL:
+{{ login_url }}
+
+If you have not received your password, please contact your administrator.
+
+-- DNS Watcher

@@ -1,0 +1,9 @@
+{% extends "email/base.html" %}
+{% block body %}
+<p>Hello {{ user.full_name or user.username }},</p>
+<p>Your DNS Watcher account (<strong>{{ user.username }}</strong>) has been deactivated by an administrator.</p>
+<p>You will no longer be able to log in until your account is reactivated.</p>
+<p style="font-size: 13px; color: #64748b;">
+  If you have questions about this change, please contact your administrator.
+</p>
+{% endblock %}

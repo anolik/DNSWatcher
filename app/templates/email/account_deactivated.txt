@@ -1,0 +1,9 @@
+Hello {{ user.full_name or user.username }},
+
+Your DNS Watcher account ({{ user.username }}) has been deactivated by an administrator.
+
+You will no longer be able to log in until your account is reactivated.
+
+If you have questions about this change, please contact your administrator.
+
+-- DNS Watcher

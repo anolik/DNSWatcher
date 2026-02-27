@@ -39,6 +39,8 @@ from app import db
 from app.dmarc_reports import bp
 from app.dmarc_reports.parser import parse_dmarc_attachment
 from app.models import DmarcReport, DnsSettings, Domain
+from app.utils.auth import admin_required, editor_required
+from app.utils.tenant import get_current_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +64,7 @@ def _ingest_parsed_report(
     parsed: dict,
     source: str,
     subject: str | None = None,
+    org_id: int | None = None,
 ) -> tuple[bool, str]:
     """Save a parsed DMARC report to the database.
 
@@ -74,6 +77,7 @@ def _ingest_parsed_report(
         parsed: Dict returned by parse_dmarc_attachment().
         source: Origin of the report; either 'manual' or 'auto'.
         subject: Email subject line when the report arrived via Graph API.
+        org_id: Organization ID to assign to the report.
 
     Returns:
         (True, "ok") on successful insertion.
@@ -113,6 +117,7 @@ def _ingest_parsed_report(
         records_json=json.dumps(records),
         source=source,
         domain_id=domain_id,
+        org_id=org_id,
         email_subject=subject,
         policy_published_json=json.dumps({
             "adkim": parsed.get("published_adkim", ""),
@@ -157,7 +162,7 @@ def _ingest_parsed_report(
 # ---------------------------------------------------------------------------
 
 
-def run_graph_fetch(app) -> tuple[int, int]:
+def run_graph_fetch(app, dns_settings: DnsSettings | None = None) -> tuple[int, int]:
     """Fetch DMARC reports from Exchange Online via the Microsoft Graph API.
 
     Designed to be called both from a Flask request context (POST /fetch)
@@ -165,8 +170,14 @@ def run_graph_fetch(app) -> tuple[int, int]:
     ``app`` argument provides the application context explicitly so the
     function does not rely on the request-bound ``current_app`` proxy.
 
+    F50: accepts an optional *dns_settings* parameter so the caller can
+    pass a specific per-org DnsSettings row with its own Graph credentials.
+    When omitted, falls back to loading the global row (org_id=NULL).
+
     Args:
         app: Flask application instance (not the proxy).
+        dns_settings: Optional DnsSettings row to use for Graph credentials.
+            When None, loads the global settings row.
 
     Returns:
         A (imported_count, dupe_count) tuple.  Both values are zero when
@@ -176,7 +187,12 @@ def run_graph_fetch(app) -> tuple[int, int]:
     from app.dmarc_reports.graph_client import fetch_dmarc_emails  # noqa: PLC0415
 
     with app.app_context():
-        settings = db.session.get(DnsSettings, 1)
+        if dns_settings is None:
+            from app.utils.tenant import get_org_settings  # noqa: PLC0415
+            settings = get_org_settings(None)
+        else:
+            # Re-merge in case the caller's session differs from this context
+            settings = db.session.merge(dns_settings, load=False)
         if settings is None or not settings.graph_enabled:
             logger.debug("run_graph_fetch: Graph integration disabled or not configured.")
             return 0, 0
@@ -225,7 +241,7 @@ def run_graph_fetch(app) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
-def _compute_summary_stats(domain_filter: str = "") -> dict:
+def _compute_summary_stats(domain_filter: str = "", org_id: int | None = None) -> dict:
     """Compute aggregate summary statistics for DMARC reports.
 
     Args:
@@ -241,6 +257,8 @@ def _compute_summary_stats(domain_filter: str = "") -> dict:
         db.func.coalesce(db.func.sum(DmarcReport.pass_count), 0).label("pass_count"),
         db.func.coalesce(db.func.sum(DmarcReport.fail_count), 0).label("fail_count"),
     )
+    if org_id is not None:
+        query = query.where(DmarcReport.org_id == org_id)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -258,6 +276,8 @@ def _compute_summary_stats(domain_filter: str = "") -> dict:
         .order_by(db.func.sum(DmarcReport.fail_count).desc())
         .limit(1)
     )
+    if org_id is not None:
+        top_fail_query = top_fail_query.where(DmarcReport.org_id == org_id)
     if domain_filter:
         top_fail_query = top_fail_query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -274,7 +294,7 @@ def _compute_summary_stats(domain_filter: str = "") -> dict:
     }
 
 
-def _top_failing_ips(domain_filter: str = "", limit: int = 10) -> list[dict]:
+def _top_failing_ips(domain_filter: str = "", limit: int = 10, org_id: int | None = None) -> list[dict]:
     """Aggregate source IPs with highest fail counts from records_json.
 
     Args:
@@ -286,6 +306,8 @@ def _top_failing_ips(domain_filter: str = "", limit: int = 10) -> list[dict]:
         sorted by fail_count descending.
     """
     query = db.select(DmarcReport.records_json)
+    if org_id is not None:
+        query = query.where(DmarcReport.org_id == org_id)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -316,7 +338,7 @@ def _top_failing_ips(domain_filter: str = "", limit: int = 10) -> list[dict]:
     return sorted_ips[:limit]
 
 
-def _stats_by_envelope_to(domain_filter: str = "", limit: int = 20) -> list[dict]:
+def _stats_by_envelope_to(domain_filter: str = "", limit: int = 20, org_id: int | None = None) -> list[dict]:
     """Aggregate DMARC record statistics grouped by envelope_to (destination domain).
 
     Args:
@@ -328,6 +350,8 @@ def _stats_by_envelope_to(domain_filter: str = "", limit: int = 20) -> list[dict
         pass_rate keys, sorted by total_count descending.
     """
     query = db.select(DmarcReport.records_json)
+    if org_id is not None:
+        query = query.where(DmarcReport.org_id == org_id)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -372,7 +396,7 @@ def _stats_by_envelope_to(domain_filter: str = "", limit: int = 20) -> list[dict
     return sorted_dests[:limit]
 
 
-def _distinct_envelope_to_domains(domain_filter: str = "") -> list[str]:
+def _distinct_envelope_to_domains(domain_filter: str = "", org_id: int | None = None) -> list[str]:
     """Return distinct envelope_to values from all DMARC records.
 
     Args:
@@ -382,6 +406,8 @@ def _distinct_envelope_to_domains(domain_filter: str = "") -> list[str]:
         Sorted list of unique envelope_to domain strings.
     """
     query = db.select(DmarcReport.records_json)
+    if org_id is not None:
+        query = query.where(DmarcReport.org_id == org_id)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -403,9 +429,11 @@ def _distinct_envelope_to_domains(domain_filter: str = "") -> list[str]:
     return sorted(destinations)
 
 
-def _load_all_records(domain_filter: str = "") -> list[dict]:
+def _load_all_records(domain_filter: str = "", org_id: int | None = None) -> list[dict]:
     """Load and parse all records_json entries for analytics."""
     query = db.select(DmarcReport.records_json)
+    if org_id is not None:
+        query = query.where(DmarcReport.org_id == org_id)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
     rows = db.session.execute(query).scalars().all()
@@ -421,9 +449,9 @@ def _load_all_records(domain_filter: str = "") -> list[dict]:
     return all_records
 
 
-def _failure_mode_breakdown(domain_filter: str = "") -> dict:
+def _failure_mode_breakdown(domain_filter: str = "", org_id: int | None = None) -> dict:
     """Categorize failures into distinct modes."""
-    all_records = _load_all_records(domain_filter)
+    all_records = _load_all_records(domain_filter, org_id=org_id)
     total_pass = 0
     total_fail = 0
     dkim_only_fail = 0
@@ -479,9 +507,9 @@ def _failure_mode_breakdown(domain_filter: str = "") -> dict:
     }
 
 
-def _override_stats(domain_filter: str = "") -> list[dict]:
+def _override_stats(domain_filter: str = "", org_id: int | None = None) -> list[dict]:
     """Count records by override reason type."""
-    all_records = _load_all_records(domain_filter)
+    all_records = _load_all_records(domain_filter, org_id=org_id)
     reason_counts: dict[str, int] = {}
     total = 0
 
@@ -503,9 +531,9 @@ def _override_stats(domain_filter: str = "") -> list[dict]:
     return result
 
 
-def _stats_by_dkim_selector(domain_filter: str = "", limit: int = 20) -> list[dict]:
+def _stats_by_dkim_selector(domain_filter: str = "", limit: int = 20, org_id: int | None = None) -> list[dict]:
     """Per-selector pass rates from all_dkim_results."""
-    all_records = _load_all_records(domain_filter)
+    all_records = _load_all_records(domain_filter, org_id=org_id)
     selector_stats: dict[str, dict] = {}
 
     for rec in all_records:
@@ -538,9 +566,9 @@ def _stats_by_dkim_selector(domain_filter: str = "", limit: int = 20) -> list[di
     return result_list[:limit]
 
 
-def _alignment_analysis(domain_filter: str = "") -> list[dict]:
+def _alignment_analysis(domain_filter: str = "", org_id: int | None = None) -> list[dict]:
     """Identify envelope_from vs header_from mismatches."""
-    all_records = _load_all_records(domain_filter)
+    all_records = _load_all_records(domain_filter, org_id=org_id)
     alignment_stats: dict[str, dict] = {}
 
     for rec in all_records:
@@ -580,9 +608,11 @@ def _alignment_analysis(domain_filter: str = "") -> list[dict]:
     return result_list[:20]
 
 
-def _stats_by_subdomain(domain_filter: str = "", limit: int = 20) -> list[dict]:
+def _stats_by_subdomain(domain_filter: str = "", limit: int = 20, org_id: int | None = None) -> list[dict]:
     """Group records by subdomain of header_from relative to policy_domain."""
     query = db.select(DmarcReport.policy_domain, DmarcReport.records_json)
+    if org_id is not None:
+        query = query.where(DmarcReport.org_id == org_id)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -631,7 +661,7 @@ def _stats_by_subdomain(domain_filter: str = "", limit: int = 20) -> list[dict]:
     return result_list[:limit]
 
 
-def _new_disappeared_ips(domain_filter: str = "", days_recent: int = 7, days_previous: int = 7) -> dict:
+def _new_disappeared_ips(domain_filter: str = "", days_recent: int = 7, days_previous: int = 7, org_id: int | None = None) -> dict:
     """Compare IPs between recent and previous period."""
     now = datetime.now(timezone.utc)
     recent_start = now - timedelta(days=days_recent)
@@ -642,6 +672,8 @@ def _new_disappeared_ips(domain_filter: str = "", days_recent: int = 7, days_pre
             DmarcReport.begin_date >= start,
             DmarcReport.begin_date < end,
         )
+        if org_id is not None:
+            query = query.where(DmarcReport.org_id == org_id)
         if domain_filter:
             query = query.where(DmarcReport.policy_domain == domain_filter)
         rows = db.session.execute(query).scalars().all()
@@ -702,11 +734,11 @@ def _new_disappeared_ips(domain_filter: str = "", days_recent: int = 7, days_pre
     }
 
 
-def _classify_sending_sources(domain_filter: str = "", limit: int = 30) -> list[dict]:
+def _classify_sending_sources(domain_filter: str = "", limit: int = 30, org_id: int | None = None) -> list[dict]:
     """Classify top source IPs via PTR lookup."""
     from app.dmarc_reports.source_classifier import classify_sources
 
-    all_records = _load_all_records(domain_filter)
+    all_records = _load_all_records(domain_filter, org_id=org_id)
     ip_stats: dict[str, dict] = {}
 
     for rec in all_records:
@@ -749,7 +781,7 @@ def _classify_sending_sources(domain_filter: str = "", limit: int = 30) -> list[
     return result
 
 
-def _bimi_readiness(domain_filter: str = "") -> list[dict]:
+def _bimi_readiness(domain_filter: str = "", org_id: int | None = None) -> list[dict]:
     """Per-domain BIMI readiness based on DMARC report data."""
     query = db.select(
         DmarcReport.policy_domain,
@@ -757,6 +789,8 @@ def _bimi_readiness(domain_filter: str = "") -> list[dict]:
         db.func.sum(DmarcReport.pass_count).label("passes"),
         DmarcReport.policy_published_json,
     ).group_by(DmarcReport.policy_domain)
+    if org_id is not None:
+        query = query.where(DmarcReport.org_id == org_id)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -799,7 +833,7 @@ def _bimi_readiness(domain_filter: str = "") -> list[dict]:
     return result
 
 
-def _multi_domain_comparison() -> list[dict]:
+def _multi_domain_comparison(org_id: int | None = None) -> list[dict]:
     """Side-by-side DMARC posture for all monitored domains."""
     query = db.select(
         DmarcReport.policy_domain,
@@ -809,6 +843,8 @@ def _multi_domain_comparison() -> list[dict]:
     ).group_by(DmarcReport.policy_domain).order_by(
         db.func.sum(DmarcReport.total_messages).desc()
     )
+    if org_id is not None:
+        query = query.where(DmarcReport.org_id == org_id)
 
     rows = db.session.execute(query).all()
     result = []
@@ -846,7 +882,7 @@ def _multi_domain_comparison() -> list[dict]:
     return result
 
 
-def _check_pass_rate_alerts(domain_filter: str = "") -> list[dict]:
+def _check_pass_rate_alerts(domain_filter: str = "", org_id: int | None = None) -> list[dict]:
     """Detect pass rate drops between periods."""
     now = datetime.now(timezone.utc)
     current_start = now - timedelta(days=7)
@@ -861,6 +897,8 @@ def _check_pass_rate_alerts(domain_filter: str = "") -> list[dict]:
             DmarcReport.begin_date >= start,
             DmarcReport.begin_date < end,
         ).group_by(DmarcReport.policy_domain)
+        if org_id is not None:
+            query = query.where(DmarcReport.org_id == org_id)
         if domain_filter:
             query = query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -995,7 +1033,9 @@ def index():
     sort_expr = _AGG_SORTABLE_COLUMNS[sort_col]
     order_clause = sort_expr.asc() if sort_order == "asc" else sort_expr.desc()
 
-    # Aggregated query: one row per policy_domain
+    org_id = get_current_org_id()
+
+    # Aggregated query: one row per policy_domain (scoped to org)
     query = db.select(
         DmarcReport.policy_domain,
         db.func.count(DmarcReport.id).label("report_count"),
@@ -1004,7 +1044,7 @@ def index():
         db.func.sum(DmarcReport.total_messages).label("total_messages"),
         db.func.sum(DmarcReport.pass_count).label("pass_count"),
         db.func.sum(DmarcReport.fail_count).label("fail_count"),
-    ).group_by(DmarcReport.policy_domain)
+    ).where(DmarcReport.org_id == org_id).group_by(DmarcReport.policy_domain)
 
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
@@ -1026,39 +1066,41 @@ def index():
     ).all()
     pager = _AggPagination(items=items, total=total, page=page, per_page=per_page)
 
-    # Distinct policy_domains for the filter dropdown
+    # Distinct policy_domains for the filter dropdown (scoped to org)
     domains_result = db.session.execute(
         db.select(DmarcReport.policy_domain)
+        .where(DmarcReport.org_id == org_id)
         .distinct()
         .order_by(DmarcReport.policy_domain)
     ).scalars().all()
 
-    # Distinct org_names for the filter dropdown
+    # Distinct org_names for the filter dropdown (scoped to org)
     orgs_result = db.session.execute(
         db.select(DmarcReport.org_name)
+        .where(DmarcReport.org_id == org_id)
         .distinct()
         .order_by(DmarcReport.org_name)
     ).scalars().all()
 
     # Distinct envelope_to destinations for the filter dropdown
-    dest_domains = _distinct_envelope_to_domains(domain_filter)
+    dest_domains = _distinct_envelope_to_domains(domain_filter, org_id=org_id)
 
     # Analytics: summary stats, top failing IPs, and destination stats
-    summary_stats = _compute_summary_stats(domain_filter)
-    top_ips = _top_failing_ips(domain_filter)
-    dest_stats = _stats_by_envelope_to(domain_filter)
+    summary_stats = _compute_summary_stats(domain_filter, org_id=org_id)
+    top_ips = _top_failing_ips(domain_filter, org_id=org_id)
+    dest_stats = _stats_by_envelope_to(domain_filter, org_id=org_id)
 
     # Extended analytics
-    failure_modes = _failure_mode_breakdown(domain_filter)
-    override_stats = _override_stats(domain_filter)
-    selector_stats = _stats_by_dkim_selector(domain_filter)
-    alignment_data = _alignment_analysis(domain_filter)
-    subdomain_stats = _stats_by_subdomain(domain_filter)
-    ip_changes = _new_disappeared_ips(domain_filter)
-    source_classes = _classify_sending_sources(domain_filter)
-    bimi_readiness = _bimi_readiness(domain_filter)
-    domain_comparison = _multi_domain_comparison()
-    pass_rate_alerts = _check_pass_rate_alerts(domain_filter)
+    failure_modes = _failure_mode_breakdown(domain_filter, org_id=org_id)
+    override_stats = _override_stats(domain_filter, org_id=org_id)
+    selector_stats = _stats_by_dkim_selector(domain_filter, org_id=org_id)
+    alignment_data = _alignment_analysis(domain_filter, org_id=org_id)
+    subdomain_stats = _stats_by_subdomain(domain_filter, org_id=org_id)
+    ip_changes = _new_disappeared_ips(domain_filter, org_id=org_id)
+    source_classes = _classify_sending_sources(domain_filter, org_id=org_id)
+    bimi_readiness = _bimi_readiness(domain_filter, org_id=org_id)
+    domain_comparison = _multi_domain_comparison(org_id=org_id)
+    pass_rate_alerts = _check_pass_rate_alerts(domain_filter, org_id=org_id)
 
     return render_template(
         "dmarc_reports/index.html",
@@ -1088,7 +1130,7 @@ def index():
 
 
 @bp.route("/upload", methods=["POST"])
-@login_required
+@editor_required
 def upload():
     """Accept one or more DMARC report file uploads and ingest them.
 
@@ -1145,7 +1187,7 @@ def upload():
             errors += 1
             continue
 
-        ok, reason = _ingest_parsed_report(parsed, "manual")
+        ok, reason = _ingest_parsed_report(parsed, "manual", org_id=get_current_org_id())
         if ok:
             imported += 1
         elif reason == "duplicate":
@@ -1174,7 +1216,7 @@ def upload():
 
 
 @bp.route("/fetch", methods=["POST"])
-@login_required
+@editor_required
 def fetch():
     """Trigger a manual Graph API fetch of DMARC report emails.
 
@@ -1210,6 +1252,9 @@ def detail(id: int):
         id: Primary key of the DmarcReport row.
     """
     report = db.get_or_404(DmarcReport, id)
+    if not current_user.is_superadmin and report.org_id != get_current_org_id():
+        from flask import abort
+        abort(404)
     records = report.get_records()
     policy_published = report.get_policy_published()
 
@@ -1234,8 +1279,10 @@ def domain_detail(domain: str):
     sort_order: str = request.args.get("order", "desc").strip().lower()
     page: int = request.args.get("page", 1, type=int)
 
+    org_id = get_current_org_id()
     query = db.select(DmarcReport).where(
-        DmarcReport.policy_domain == domain
+        DmarcReport.policy_domain == domain,
+        DmarcReport.org_id == org_id,
     )
     if org_filter:
         query = query.where(DmarcReport.org_name == org_filter)
@@ -1254,7 +1301,7 @@ def domain_detail(domain: str):
     # Distinct orgs for this domain (filter dropdown)
     orgs = db.session.execute(
         db.select(DmarcReport.org_name)
-        .where(DmarcReport.policy_domain == domain)
+        .where(DmarcReport.policy_domain == domain, DmarcReport.org_id == org_id)
         .distinct()
         .order_by(DmarcReport.org_name)
     ).scalars().all()
@@ -1268,13 +1315,13 @@ def domain_detail(domain: str):
             db.func.sum(DmarcReport.fail_count).label("fail_count"),
             db.func.min(DmarcReport.begin_date).label("earliest"),
             db.func.max(DmarcReport.end_date).label("latest"),
-        ).where(DmarcReport.policy_domain == domain)
+        ).where(DmarcReport.policy_domain == domain, DmarcReport.org_id == org_id)
     ).one()
 
     # Latest published policy
     latest_policy_json = db.session.execute(
         db.select(DmarcReport.policy_published_json)
-        .where(DmarcReport.policy_domain == domain)
+        .where(DmarcReport.policy_domain == domain, DmarcReport.org_id == org_id)
         .where(DmarcReport.policy_published_json.isnot(None))
         .order_by(DmarcReport.begin_date.desc())
         .limit(1)
@@ -1309,6 +1356,7 @@ def ip_detail(ip: str):
     """
     domain_filter: str = request.args.get("domain", "").strip()
 
+    org_id = get_current_org_id()
     query = db.select(
         DmarcReport.id,
         DmarcReport.report_id,
@@ -1317,7 +1365,7 @@ def ip_detail(ip: str):
         DmarcReport.begin_date,
         DmarcReport.end_date,
         DmarcReport.records_json,
-    )
+    ).where(DmarcReport.org_id == org_id)
     if domain_filter:
         query = query.where(DmarcReport.policy_domain == domain_filter)
 
@@ -1395,7 +1443,8 @@ def export_csv():
         column = _SORTABLE_COLUMNS[sort_col]
         order_clause = column.asc() if sort_order == "asc" else column.desc()
 
-        query = db.select(DmarcReport).order_by(order_clause)
+        org_id = get_current_org_id()
+        query = db.select(DmarcReport).where(DmarcReport.org_id == org_id).order_by(order_clause)
         if domain_filter:
             query = query.where(DmarcReport.policy_domain == domain_filter)
         if org_filter:
@@ -1434,6 +1483,7 @@ def export_csv():
         sort_expr = _AGG_SORTABLE_COLUMNS[sort_col_agg]
         order_clause = sort_expr.asc() if sort_order_agg == "asc" else sort_expr.desc()
 
+        org_id = get_current_org_id()
         query = db.select(
             DmarcReport.policy_domain,
             db.func.count(DmarcReport.id).label("report_count"),
@@ -1442,7 +1492,7 @@ def export_csv():
             db.func.sum(DmarcReport.total_messages).label("total_messages"),
             db.func.sum(DmarcReport.pass_count).label("pass_count"),
             db.func.sum(DmarcReport.fail_count).label("fail_count"),
-        ).group_by(DmarcReport.policy_domain)
+        ).where(DmarcReport.org_id == org_id).group_by(DmarcReport.policy_domain)
 
         if domain_filter:
             query = query.where(DmarcReport.policy_domain == domain_filter)
@@ -1492,14 +1542,15 @@ from app.models import ChangeLog, CheckResult  # noqa: E402
 
 
 @bp.route("/purge", methods=["POST"])
-@login_required
+@admin_required
 def purge():
     """Delete old DMARC reports, check results, and change logs beyond retention.
 
     Reads ``data_retention_days`` from DnsSettings and deletes all records
     older than that threshold.  Redirects back to the settings page.
     """
-    settings = db.session.get(DnsSettings, 1)
+    from app.utils.tenant import get_current_org_id, get_org_settings  # noqa: PLC0415
+    settings = get_org_settings(get_current_org_id())
     retention_days = settings.data_retention_days if settings else 90
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)

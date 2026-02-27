@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from flask import Flask
+from flask import Flask, render_template
 from flask_login import LoginManager
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
@@ -122,15 +122,35 @@ def create_app(config_object: object = Config) -> Flask:
     from app.dmarc_reports import bp as dmarc_reports_bp
     app.register_blueprint(dmarc_reports_bp)
 
+    from app.admin import bp as admin_bp
+    app.register_blueprint(admin_bp)
+
+    # ------------------------------------------------------------------
+    # Error handlers
+    # ------------------------------------------------------------------
+    @app.errorhandler(403)
+    def forbidden(e):
+        return render_template("errors/403.html"), 403
+
     # ------------------------------------------------------------------
     # Template context processors & filters
     # ------------------------------------------------------------------
 
+    @app.context_processor
+    def inject_role_helpers():
+        """Expose role booleans for conditional UI in templates."""
+        from flask_login import current_user as _cu
+        return {
+            "user_is_superadmin": _cu.is_authenticated and hasattr(_cu, "is_superadmin") and _cu.is_superadmin,
+            "user_is_admin": _cu.is_authenticated and hasattr(_cu, "is_admin") and _cu.is_admin,
+            "user_is_editor": _cu.is_authenticated and hasattr(_cu, "is_editor") and _cu.is_editor,
+        }
+
     def _get_display_tz_name() -> str:
-        """Load the display timezone name from DnsSettings (singleton)."""
+        """Load the display timezone name from DnsSettings (per-org with global fallback)."""
         try:
-            from app.models import DnsSettings
-            settings = db.session.get(DnsSettings, 1)
+            from app.utils.tenant import get_current_org_id, get_org_settings
+            settings = get_org_settings(get_current_org_id())
             if settings and settings.display_timezone:
                 return settings.display_timezone
         except Exception:
@@ -154,6 +174,21 @@ def create_app(config_object: object = Config) -> Flask:
             "warn30_str": (_now_local + timedelta(days=30)).strftime("%Y-%m-%d"),
             "warn90_str": (_now_local + timedelta(days=90)).strftime("%Y-%m-%d"),
             "display_tz": tz_name,
+        }
+
+    # ------------------------------------------------------------------
+    # Tenant context middleware (F47)
+    # ------------------------------------------------------------------
+    from app.utils.tenant import set_current_org
+
+    app.before_request(set_current_org)
+
+    @app.context_processor
+    def inject_tenant_context():
+        """Expose current org in templates."""
+        from flask import g
+        return {
+            "current_org": getattr(g, "current_org", None),
         }
 
     @app.template_filter("timeago")

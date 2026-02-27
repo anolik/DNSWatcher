@@ -1,0 +1,23 @@
+{% extends "email/base.html" %}
+{% block body %}
+<p>Hello {{ user.full_name or user.username }},</p>
+<p>Your DNS Watcher account has been created. Here are your details:</p>
+<table style="margin: 16px 0; border-collapse: collapse;">
+  <tr>
+    <td style="padding: 6px 12px 6px 0; font-weight: 600; color: #475569;">Username:</td>
+    <td style="padding: 6px 0;">{{ user.username }}</td>
+  </tr>
+  <tr>
+    <td style="padding: 6px 12px 6px 0; font-weight: 600; color: #475569;">Role:</td>
+    <td style="padding: 6px 0;">{{ user.role | capitalize }}</td>
+  </tr>
+</table>
+<p>To get started, log in using the button below. If you have not received your password, please contact your administrator.</p>
+<p style="text-align: center;">
+  <a href="{{ login_url }}" class="btn">Log In to DNS Watcher</a>
+</p>
+<p style="font-size: 13px; color: #64748b;">
+  If the button doesn't work, copy and paste this URL into your browser:<br>
+  <code style="word-break: break-all;">{{ login_url }}</code>
+</p>
+{% endblock %}

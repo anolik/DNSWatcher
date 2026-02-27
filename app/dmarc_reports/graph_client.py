@@ -12,6 +12,7 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -129,24 +130,40 @@ def _get_access_token(
 # ---------------------------------------------------------------------------
 
 
-def _list_unread_messages(mailbox: str, token: str) -> list[dict]:
+def _list_unread_messages(
+    mailbox: str,
+    token: str,
+    max_age_days: int = 30,
+) -> list[dict]:
     """Return up to 50 unread messages that have attachments.
+
+    Only messages received within the last *max_age_days* days are returned
+    to avoid downloading excessive historical data on first run.
 
     Args:
         mailbox: The Exchange Online mailbox UPN or ID.
         token: Valid Graph API bearer token.
+        max_age_days: Maximum age of messages to fetch (default 30 days).
 
     Returns:
         List of message objects from the Graph API response.
     """
+    since = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    filter_expr = (
+        f"hasAttachments eq true and isRead eq false"
+        f" and receivedDateTime ge {since}"
+    )
     params = urllib.parse.urlencode(
         {
-            "$filter": "hasAttachments eq true and isRead eq false",
+            "$filter": filter_expr,
             "$top": "50",
             "$select": "id,subject,hasAttachments",
         }
     )
     url = f"{_GRAPH_BASE}/users/{mailbox}/messages?{params}"
+    logger.info("Graph list messages: filter since %s (%d days)", since, max_age_days)
     response = _make_request(url, token=token)
     return response.get("value", [])
 

@@ -331,6 +331,48 @@
             </div>
           </div>
 
+          <hr class="border-light-surface-border/20 dark:border-surface-border/10 my-5">
+
+          {# ── Data Retention ── #}
+          <h3 class="text-xs font-bold uppercase tracking-wider text-light-content-muted dark:text-content-muted mb-3">
+            <i class="bi bi-clock-history mr-1.5"></i>Data Retention
+          </h3>
+
+          <div class="grid grid-cols-12 gap-4 mb-4">
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.data_retention_days.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.data_retention_days.label.text }}
+              </label>
+              {{ form.data_retention_days(id=form.data_retention_days.id,
+                                          class='mica-input' + (' is-invalid' if form.data_retention_days.errors else ''),
+                                          min=7, max=730) }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                DMARC reports, check results, and change logs older than this will be purged.
+              </p>
+              {% for err in form.data_retention_days.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            <div class="col-span-12 sm:col-span-6 flex items-end">
+              <div>
+                <p class="text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                  Manual purge
+                </p>
+                <button type="button" id="btn-purge"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium
+                               text-white bg-status-danger hover:bg-red-600
+                               rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-400">
+                  <i class="bi bi-trash3"></i>Purge old data now
+                </button>
+                <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                  Immediately deletes data beyond the retention period.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div class="mt-5">
             {{ form.submit(class="btn-primary") }}
             <a href="{{ url_for('dmarc_reports.index') }}"
@@ -340,6 +382,11 @@
           </div>
         </div>{# /panel-dmarc #}
 
+      </form>
+
+      {# Hidden purge form (outside main settings form) #}
+      <form id="purge-form" method="post" action="{{ url_for('dmarc_reports.purge') }}" class="hidden">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       </form>
     </div>{# /mica-card #}
   </div>{# /col-span-7 #}
@@ -451,6 +498,18 @@
             and marked as read after ingestion.
           </p>
         </div>
+        <div class="pt-2 border-t border-light-surface-border/20 dark:border-surface-border/10">
+          <p class="text-xs">
+            <i class="bi bi-clock-history mr-1 text-primary-400"></i>
+            <strong class="text-light-content-primary dark:text-content-primary">Email collection</strong> is limited to
+            the last <strong class="text-light-content-primary dark:text-content-primary">30 days</strong> to prevent excessive data download.
+          </p>
+          <p class="text-xs mt-1">
+            <i class="bi bi-trash3 mr-1 text-status-danger"></i>
+            <strong class="text-light-content-primary dark:text-content-primary">Data retention</strong> controls how long
+            DMARC reports, check results, and change logs are kept. Use the purge button to clean up old data immediately.
+          </p>
+        </div>
       </div>
     </div>
 
@@ -520,6 +579,18 @@
   /* Restore saved tab, then apply server-side override (e.g. validation errors) */
   var saved = sessionStorage.getItem(STORAGE_KEY) || 'dns';
   activate(INITIAL_TAB !== 'dns' ? INITIAL_TAB : saved);
+
+  /* Purge button confirmation */
+  var purgeBtn = document.getElementById('btn-purge');
+  if (purgeBtn) {
+    purgeBtn.addEventListener('click', function () {
+      var days = document.getElementById('data_retention_days');
+      var val = days ? days.value : '90';
+      if (confirm('Are you sure you want to permanently delete all DMARC reports, check results, and change logs older than ' + val + ' days?\n\nThis action cannot be undone.')) {
+        document.getElementById('purge-form').submit();
+      }
+    });
+  }
 }());
 </script>
 {% endblock %}

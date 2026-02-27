@@ -371,6 +371,8 @@ def test_settings_save_updates_dns_settings(auth_client, app):
                 "retries": "2",
                 "flap_threshold": "3",
                 "check_concurrency": "5",
+                "display_timezone": "UTC",
+                "data_retention_days": "90",
             },
             follow_redirects=False,
         )

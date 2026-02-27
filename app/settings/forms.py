@@ -138,6 +138,14 @@ class DnsSettingsForm(FlaskForm):
     check_bimi_enabled: BooleanField = BooleanField("BIMI")
     check_tls_enabled: BooleanField = BooleanField("SMTP TLS (STARTTLS)")
 
+    data_retention_days: IntegerField = IntegerField(
+        "Data retention (days)",
+        validators=[
+            DataRequired(message="Retention period is required."),
+            NumberRange(min=7, max=730, message="Retention must be between 7 and 730 days."),
+        ],
+    )
+
     graph_enabled: BooleanField = BooleanField("Enable Microsoft Graph API auto-fetch")
     graph_tenant_id: StringField = StringField("Azure Tenant ID", validators=[Optional()])
     graph_client_id: StringField = StringField("App (Client) ID", validators=[Optional()])

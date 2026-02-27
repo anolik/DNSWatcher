@@ -58,6 +58,7 @@ def index():
         dns_settings.check_mta_sts_enabled = form.check_mta_sts_enabled.data
         dns_settings.check_bimi_enabled = form.check_bimi_enabled.data
         dns_settings.check_tls_enabled = form.check_tls_enabled.data
+        dns_settings.data_retention_days = form.data_retention_days.data
         dns_settings.graph_enabled = form.graph_enabled.data
         dns_settings.graph_tenant_id = (form.graph_tenant_id.data or "").strip() or None
         dns_settings.graph_client_id = (form.graph_client_id.data or "").strip() or None
@@ -99,6 +100,7 @@ def index():
         form.check_mta_sts_enabled.data = dns_settings.check_mta_sts_enabled
         form.check_bimi_enabled.data = dns_settings.check_bimi_enabled
         form.check_tls_enabled.data = dns_settings.check_tls_enabled
+        form.data_retention_days.data = dns_settings.data_retention_days
         form.graph_enabled.data = dns_settings.graph_enabled
         form.graph_tenant_id.data = dns_settings.graph_tenant_id or ""
         form.graph_client_id.data = dns_settings.graph_client_id or ""

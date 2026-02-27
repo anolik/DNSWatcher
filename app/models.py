@@ -407,6 +407,13 @@ class DnsSettings(db.Model):
     check_bimi_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
     check_tls_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
 
+    # ------------------------------------------------------------------
+    # Data retention
+    # ------------------------------------------------------------------
+    data_retention_days: db.Mapped[int] = db.mapped_column(
+        db.Integer, default=90, nullable=False
+    )
+
     updated_by_user: db.Mapped[User | None] = db.relationship(
         "User", foreign_keys=[updated_by], lazy="joined"
     )

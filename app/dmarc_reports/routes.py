@@ -21,6 +21,7 @@ import io
 import json
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 
 from flask import (
     Response,
@@ -31,7 +32,7 @@ from flask import (
     request,
     url_for,
 )
-from flask_login import login_required
+from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError
 
 from app import db
@@ -594,3 +595,67 @@ def export_csv():
             "Content-Disposition": "attachment; filename=dmarc_reports.csv",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Data purge
+# ---------------------------------------------------------------------------
+
+from app.models import ChangeLog, CheckResult  # noqa: E402
+
+
+@bp.route("/purge", methods=["POST"])
+@login_required
+def purge():
+    """Delete old DMARC reports, check results, and change logs beyond retention.
+
+    Reads ``data_retention_days`` from DnsSettings and deletes all records
+    older than that threshold.  Redirects back to the settings page.
+    """
+    settings = db.session.get(DnsSettings, 1)
+    retention_days = settings.data_retention_days if settings else 90
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+
+    # Purge DMARC reports older than cutoff (by end_date)
+    dmarc_deleted = (
+        db.session.query(DmarcReport)
+        .filter(DmarcReport.end_date < cutoff)
+        .delete(synchronize_session=False)
+    )
+
+    # Purge check results older than cutoff
+    checks_deleted = (
+        db.session.query(CheckResult)
+        .filter(CheckResult.checked_at < cutoff)
+        .delete(synchronize_session=False)
+    )
+
+    # Purge change logs older than cutoff
+    changes_deleted = (
+        db.session.query(ChangeLog)
+        .filter(ChangeLog.detected_at < cutoff)
+        .delete(synchronize_session=False)
+    )
+
+    db.session.commit()
+
+    total = dmarc_deleted + checks_deleted + changes_deleted
+    logger.info(
+        "Data purge by %s: retention=%d days, cutoff=%s, "
+        "dmarc_reports=%d, check_results=%d, change_logs=%d",
+        current_user.username,
+        retention_days,
+        cutoff.isoformat(),
+        dmarc_deleted,
+        checks_deleted,
+        changes_deleted,
+    )
+
+    flash(
+        f"Purge complete: {dmarc_deleted} DMARC report(s), "
+        f"{checks_deleted} check result(s), and {changes_deleted} change log(s) "
+        f"older than {retention_days} days deleted.",
+        "success" if total > 0 else "info",
+    )
+    return redirect(url_for("settings.index"))

@@ -197,6 +197,9 @@ def run_graph_fetch(app, dns_settings: DnsSettings | None = None) -> tuple[int, 
             logger.debug("run_graph_fetch: Graph integration disabled or not configured.")
             return 0, 0
 
+        # Determine the org_id to stamp on imported reports
+        report_org_id = settings.org_id
+
         try:
             emails = fetch_dmarc_emails(settings)
         except Exception:
@@ -221,7 +224,7 @@ def run_graph_fetch(app, dns_settings: DnsSettings | None = None) -> tuple[int, 
                     )
                     continue
 
-                ok, reason = _ingest_parsed_report(parsed, "auto", subject)
+                ok, reason = _ingest_parsed_report(parsed, "auto", subject, org_id=report_org_id)
                 if ok:
                     imported += 1
                 elif reason == "duplicate":

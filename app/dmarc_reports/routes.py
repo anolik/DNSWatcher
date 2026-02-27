@@ -1224,7 +1224,11 @@ def fetch():
     proxy) so the function can be safely called outside request context
     as well.
     """
-    imported, dupes = run_graph_fetch(current_app._get_current_object())
+    from app.utils.tenant import get_org_settings  # noqa: PLC0415
+
+    org_id = get_current_org_id()
+    settings = get_org_settings(org_id)
+    imported, dupes = run_graph_fetch(current_app._get_current_object(), dns_settings=settings)
 
     if imported == 0 and dupes == 0:
         flash(

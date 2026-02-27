@@ -1228,12 +1228,29 @@ def fetch():
 
     org_id = get_current_org_id()
     settings = get_org_settings(org_id)
+
+    # Give a clear error if config is incomplete instead of a vague "no reports"
+    if not settings or not settings.graph_enabled:
+        flash("Inbound email integration is disabled. Enable it in Settings → Inbound Email.", "warning")
+        return redirect(url_for("dmarc_reports.index"))
+
+    missing = [
+        name for name, val in (
+            ("Tenant ID", settings.graph_tenant_id),
+            ("Client ID", settings.graph_client_id),
+            ("Client Secret", settings.graph_client_secret),
+            ("Mailbox", settings.graph_mailbox),
+        ) if not val
+    ]
+    if missing:
+        flash(f"Inbound email config incomplete — missing: {', '.join(missing)}. Check Settings → Inbound Email.", "error")
+        return redirect(url_for("dmarc_reports.index"))
+
     imported, dupes = run_graph_fetch(current_app._get_current_object(), dns_settings=settings)
 
     if imported == 0 and dupes == 0:
         flash(
-            "Graph API fetch complete: no new reports found "
-            "(integration may be disabled or mailbox is empty).",
+            "Graph API fetch complete: no new reports found (mailbox may be empty).",
             "info",
         )
     else:

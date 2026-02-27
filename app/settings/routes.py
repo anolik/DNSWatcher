@@ -105,8 +105,14 @@ def index():
 
     if form.validate_on_submit():
         if using_global:
-            # Create an org-specific copy instead of modifying the global row
+            # Create an org-specific copy instead of modifying the global row.
+            # Carry over secrets from the global row since the form never
+            # pre-fills password fields — without this the new org row would
+            # lose all secrets on first save.
+            global_row = dns_settings
             dns_settings = DnsSettings(org_id=org_id)
+            dns_settings.graph_client_secret = global_row.graph_client_secret
+            dns_settings.outbound_client_secret = global_row.outbound_client_secret
             db.session.add(dns_settings)
 
         resolver_lines = _apply_form_to_settings(dns_settings, form)

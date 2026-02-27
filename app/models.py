@@ -448,7 +448,7 @@ class DnsSettings(db.Model):
 
     __tablename__ = "dns_settings"
 
-    id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True, default=1)
+    id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True, autoincrement=True)
     org_id: db.Mapped[int | None] = db.mapped_column(
         db.Integer, db.ForeignKey("organizations.id"), nullable=True, index=True
     )

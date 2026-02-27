@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, IntegerField, SelectField, StringField, TextAreaField, SubmitField
+from wtforms import BooleanField, DecimalField, IntegerField, SelectField, StringField, TextAreaField, SubmitField
 from wtforms.validators import DataRequired, NumberRange, Optional, ValidationError
 
 # Curated timezone list covering major regions.
@@ -132,6 +132,13 @@ class DnsSettingsForm(FlaskForm):
             "rows": 4,
             "placeholder": "https://rdap.org\nhttps://rdap.verisign.com/com/v1",
         },
+    )
+    rdap_throttle_delay: DecimalField = DecimalField(
+        "RDAP Throttle Delay (seconds between requests)",
+        default=2.0,
+        validators=[
+            NumberRange(min=0, max=10, message="Must be 0-10 seconds."),
+        ],
     )
     # Feature toggles
     check_spf_enabled: BooleanField = BooleanField("SPF")

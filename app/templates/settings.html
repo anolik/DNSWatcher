@@ -215,6 +215,25 @@
             {% endfor %}
           </div>
 
+          {# RDAP Throttle Delay #}
+          <div class="mb-4">
+            <label for="{{ form.rdap_throttle_delay.id }}"
+                   class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+              <i class="bi bi-hourglass-split mr-1.5 text-primary-400"></i>{{ form.rdap_throttle_delay.label.text }}
+            </label>
+            {{ form.rdap_throttle_delay(id=form.rdap_throttle_delay.id,
+                                        class='mica-input w-32' + (' is-invalid' if form.rdap_throttle_delay.errors else ''),
+                                        step='0.5', min='0', max='10') }}
+            <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+              Minimum delay between consecutive RDAP requests during batch checks.
+              Prevents rate-limiting (HTTP 403) from RDAP servers. Set to 0 to disable.
+              Default: <code class="font-mono text-xs bg-gray-100 dark:bg-surface-raised px-1 py-0.5 rounded">2.0</code> seconds.
+            </p>
+            {% for err in form.rdap_throttle_delay.errors %}
+              <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+            {% endfor %}
+          </div>
+
           <div class="flex items-center gap-4">
             {{ form.submit(class="btn-primary") }}
             <a href="{{ url_for('ingest.index') }}"

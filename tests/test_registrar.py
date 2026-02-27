@@ -9,6 +9,7 @@ WHOIS-only paths, date handling, and name server normalization.
 from __future__ import annotations
 
 import sys
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -495,3 +496,90 @@ class TestDefaultServers:
         assert result["lookup_method"] == "rdap"
         call_url = mock_get.call_args[0][0]
         assert "rdap.org" in call_url
+
+
+# ---------------------------------------------------------------------------
+# Tests – RDAP throttle
+# ---------------------------------------------------------------------------
+
+
+class TestRdapThrottle:
+    """Test the RDAP request throttling mechanism."""
+
+    @patch("app.checker.registrar.requests.get")
+    def test_throttle_enforces_delay(self, mock_get, app):
+        """Two rapid calls with throttle_delay should take at least that long."""
+        with app.app_context():
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = _make_rdap_response()
+            mock_resp.raise_for_status.return_value = None
+            mock_get.return_value = mock_resp
+
+            import app.checker.registrar as reg
+
+            # Reset the module-level last-request timestamp so previous
+            # tests don't interfere.
+            reg._last_request_time = 0.0
+
+            from app.checker.registrar import check_registrar
+
+            delay = 0.3  # short delay for test speed
+            t0 = time.monotonic()
+            check_registrar("a.com", rdap_servers=["https://rdap.org"], throttle_delay=delay)
+            check_registrar("b.com", rdap_servers=["https://rdap.org"], throttle_delay=delay)
+            elapsed = time.monotonic() - t0
+
+        # The second call should have waited ~delay seconds
+        assert elapsed >= delay * 0.9, f"Expected >= {delay * 0.9:.2f}s, got {elapsed:.2f}s"
+
+    @patch("app.checker.registrar.requests.get")
+    def test_throttle_zero_disables(self, mock_get, app):
+        """throttle_delay=0 should add no artificial wait."""
+        with app.app_context():
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = _make_rdap_response()
+            mock_resp.raise_for_status.return_value = None
+            mock_get.return_value = mock_resp
+
+            import app.checker.registrar as reg
+
+            reg._last_request_time = 0.0
+
+            from app.checker.registrar import check_registrar
+
+            t0 = time.monotonic()
+            check_registrar("a.com", rdap_servers=["https://rdap.org"], throttle_delay=0)
+            check_registrar("b.com", rdap_servers=["https://rdap.org"], throttle_delay=0)
+            elapsed = time.monotonic() - t0
+
+        # Without throttle, both calls should complete very quickly
+        assert elapsed < 1.0, f"Expected < 1.0s, got {elapsed:.2f}s"
+
+    @patch("app.checker.registrar.requests.get")
+    def test_throttle_none_uses_default(self, mock_get, app):
+        """throttle_delay=None should use the module default (2.0s)."""
+        with app.app_context():
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = _make_rdap_response()
+            mock_resp.raise_for_status.return_value = None
+            mock_get.return_value = mock_resp
+
+            import app.checker.registrar as reg
+
+            # Patch the default to a short value so the test doesn't wait 2s
+            original_default = reg._DEFAULT_THROTTLE_DELAY
+            reg._DEFAULT_THROTTLE_DELAY = 0.2
+            reg._last_request_time = 0.0
+
+            try:
+                from app.checker.registrar import check_registrar
+
+                t0 = time.monotonic()
+                check_registrar("a.com", rdap_servers=["https://rdap.org"], throttle_delay=None)
+                check_registrar("b.com", rdap_servers=["https://rdap.org"], throttle_delay=None)
+                elapsed = time.monotonic() - t0
+            finally:
+                reg._DEFAULT_THROTTLE_DELAY = original_default
+
+        # Should have waited at least the patched default
+        assert elapsed >= 0.15, f"Expected >= 0.15s, got {elapsed:.2f}s"

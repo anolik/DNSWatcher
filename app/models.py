@@ -470,6 +470,9 @@ class DnsSettings(db.Model):
     rdap_servers: db.Mapped[str] = db.mapped_column(
         db.Text, nullable=False, default=json.dumps(["https://rdap.org"]),
     )
+    rdap_throttle_delay: db.Mapped[float] = db.mapped_column(
+        db.Float, nullable=False, default=2.0,
+    )
     updated_at: db.Mapped[datetime | None] = db.mapped_column(
         db.DateTime(timezone=True), nullable=True
     )

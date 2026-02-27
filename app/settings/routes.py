@@ -51,6 +51,7 @@ def _apply_form_to_settings(dns_settings: DnsSettings, form: DnsSettingsForm) ->
         if line.strip()
     ]
     dns_settings.set_rdap_servers(rdap_lines if rdap_lines else ["https://rdap.org"])
+    dns_settings.rdap_throttle_delay = float(form.rdap_throttle_delay.data or 2.0)
     dns_settings.check_spf_enabled = form.check_spf_enabled.data
     dns_settings.check_dmarc_enabled = form.check_dmarc_enabled.data
     dns_settings.check_dkim_enabled = form.check_dkim_enabled.data
@@ -148,6 +149,7 @@ def index():
         form.check_concurrency.data = dns_settings.check_concurrency
         form.managed_domains.data = dns_settings.managed_domains or ""
         form.rdap_servers.data = "\n".join(dns_settings.get_rdap_servers())
+        form.rdap_throttle_delay.data = dns_settings.rdap_throttle_delay
         form.check_spf_enabled.data = dns_settings.check_spf_enabled
         form.check_dmarc_enabled.data = dns_settings.check_dmarc_enabled
         form.check_dkim_enabled.data = dns_settings.check_dkim_enabled

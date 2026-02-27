@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import itertools
 import logging
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime
 from typing import Any
@@ -24,6 +26,11 @@ from typing import Any
 import requests
 
 logger = logging.getLogger(__name__)
+
+# Default minimum delay (seconds) between consecutive RDAP requests.
+_DEFAULT_THROTTLE_DELAY: float = 2.0
+_throttle_lock = threading.Lock()
+_last_request_time: float = 0.0
 
 # Hard wall-clock limit for the entire RDAP + WHOIS attempt (seconds).
 _LOOKUP_HARD_TIMEOUT: int = 20
@@ -56,6 +63,24 @@ def _pick_rdap_server(servers: list[str]) -> str:
     """Return the next RDAP server URL via round-robin rotation."""
     idx = next(_rdap_counter) % len(servers)
     return servers[idx]
+
+
+def _throttle_wait(delay: float) -> None:
+    """Ensure at least *delay* seconds between consecutive RDAP requests.
+
+    Uses a module-level lock so that concurrent threads (e.g. during
+    "check all") queue up and fire RDAP requests with a guaranteed gap,
+    preventing rate-limit (403) responses from rdap.org.
+    """
+    global _last_request_time
+    with _throttle_lock:
+        now = time.monotonic()
+        elapsed = now - _last_request_time
+        if elapsed < delay:
+            wait_time = delay - elapsed
+            logger.debug("RDAP throttle: waiting %.1fs", wait_time)
+            time.sleep(wait_time)
+        _last_request_time = time.monotonic()
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +240,7 @@ def _do_combined_lookup(domain: str, rdap_servers: list[str]) -> dict[str, Any]:
 def check_registrar(
     domain: str,
     rdap_servers: list[str] | None = None,
+    throttle_delay: float | None = None,
 ) -> dict[str, Any]:
     """Query registrar information for *domain* (RDAP primary, WHOIS fallback).
 
@@ -225,6 +251,10 @@ def check_registrar(
         domain: The domain name to look up.
         rdap_servers: List of RDAP server base URLs.  Rotated round-robin.
             Defaults to ``["https://rdap.org"]`` if not provided.
+        throttle_delay: Minimum seconds between consecutive RDAP requests.
+            Prevents rate-limiting during batch operations.  Defaults to
+            ``_DEFAULT_THROTTLE_DELAY`` (2.0s) when ``None``.  Set to 0
+            to disable throttling.
 
     Returns:
         A dict with keys:
@@ -236,6 +266,9 @@ def check_registrar(
             error (str|None): Error message if the lookup failed.
     """
     servers = rdap_servers if rdap_servers is not None else _DEFAULT_RDAP_SERVERS
+    delay = throttle_delay if throttle_delay is not None else _DEFAULT_THROTTLE_DELAY
+    if delay > 0:
+        _throttle_wait(delay)
     future = _lookup_executor.submit(_do_combined_lookup, domain, servers)
     try:
         return future.result(timeout=_LOOKUP_HARD_TIMEOUT)

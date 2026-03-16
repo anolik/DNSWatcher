@@ -43,7 +43,7 @@
     <div class="mica-card overflow-hidden">
 
       {# -- Tab bar -- #}
-      <div class="flex border-b border-light-surface-border/20 dark:border-surface-border/10 px-1 pt-1 gap-1">
+      <div class="flex border-b border-light-surface-border/20 dark:border-surface-border/10 px-1 pt-1 gap-1 overflow-x-auto">
         <button type="button"
                 id="tab-btn-dns"
                 data-tab="dns"
@@ -55,6 +55,12 @@
                 data-tab="features"
                 class="settings-tab-btn px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none">
           <i class="bi bi-toggles mr-1.5"></i>Features
+        </button>
+        <button type="button"
+                id="tab-btn-breach"
+                data-tab="breach"
+                class="settings-tab-btn px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors focus:outline-none">
+          <i class="bi bi-shield-exclamation mr-1.5"></i>Breaches
         </button>
         <button type="button"
                 id="tab-btn-inbound"
@@ -70,7 +76,7 @@
         </button>
       </div>
 
-      {# -- Single form (both panels share it) -- #}
+      {# -- Single form (all panels share it) -- #}
       <form method="post" action="{{ url_for('settings.index') }}">
         {{ form.hidden_tag() }}
 
@@ -295,6 +301,84 @@
             {{ form.submit(class="btn-primary") }}
           </div>
         </div>{# /panel-features #}
+
+        {# ══════════════════════════════════════════════════════════════
+           Panel: Breach Monitoring (HIBP)  [F43]
+           ══════════════════════════════════════════════════════════════ #}
+        <div id="panel-breach" data-panel="breach" class="settings-tab-panel p-4 hidden">
+
+          <p class="text-sm text-light-content-muted dark:text-content-muted mb-5">
+            Monitor domain email addresses against the
+            <strong class="text-light-content-primary dark:text-content-primary">Have I Been Pwned</strong> (HIBP)
+            breach database. Requires a paid
+            <a href="https://haveibeenpwned.com/API/Key" target="_blank" rel="noopener"
+               class="text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300 underline">HIBP API key</a>.
+          </p>
+
+          {# Enable toggle #}
+          <div class="mb-5 flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-surface-raised border border-light-surface-border/20 dark:border-surface-border/10">
+            {{ form.check_breach_enabled(id=form.check_breach_enabled.id, class="w-4 h-4 accent-primary-500 flex-shrink-0") }}
+            <label for="{{ form.check_breach_enabled.id }}"
+                   class="text-sm font-semibold text-light-content-primary dark:text-content-primary cursor-pointer select-none">
+              {{ form.check_breach_enabled.label.text }}
+            </label>
+          </div>
+
+          <div class="grid grid-cols-12 gap-4">
+
+            {# API Key #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.hibp_api_key.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.hibp_api_key.label.text }}
+              </label>
+              {{ form.hibp_api_key(id=form.hibp_api_key.id,
+                                   class="mica-input" + (" is-invalid" if form.hibp_api_key.errors else ""),
+                                   placeholder="Leave blank to keep current key") }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                {% if dns_settings.hibp_api_key %}
+                  <i class="bi bi-check-circle text-status-success mr-1"></i>API key is configured. Leave blank to keep it unchanged.
+                {% else %}
+                  <i class="bi bi-exclamation-circle text-status-warning mr-1"></i>No API key configured. Enter your HIBP API key to enable breach monitoring.
+                {% endif %}
+              </p>
+              {% for err in form.hibp_api_key.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+            {# Check Frequency #}
+            <div class="col-span-12 sm:col-span-6">
+              <label for="{{ form.breach_check_frequency_days.id }}"
+                     class="block text-sm font-semibold text-light-content-primary dark:text-content-primary mb-1">
+                {{ form.breach_check_frequency_days.label.text }}
+              </label>
+              {{ form.breach_check_frequency_days(id=form.breach_check_frequency_days.id,
+                                                   class="mica-select" + (" is-invalid" if form.breach_check_frequency_days.errors else "")) }}
+              <p class="mt-1 text-xs text-light-content-muted dark:text-content-muted">
+                How often to check domain email addresses against the HIBP database.
+              </p>
+              {% for err in form.breach_check_frequency_days.errors %}
+                <p class="mt-1 text-xs text-status-danger">{{ err }}</p>
+              {% endfor %}
+            </div>
+
+          </div>
+
+          {# Last scan timestamp #}
+          {% if dns_settings.breach_last_full_scan_at %}
+          <div class="mt-5 p-3 rounded-lg bg-gray-50 dark:bg-surface-raised border border-light-surface-border/20 dark:border-surface-border/10">
+            <div class="text-sm text-light-content-muted dark:text-content-muted">
+              <i class="bi bi-clock mr-1.5"></i>
+              Last full breach scan: <strong class="text-light-content-primary dark:text-content-primary">{{ dns_settings.breach_last_full_scan_at|to_tz }}</strong> {{ display_tz }}
+            </div>
+          </div>
+          {% endif %}
+
+          <div class="mt-5">
+            {{ form.submit(class="btn-primary") }}
+          </div>
+        </div>{# /panel-breach #}
 
         {# ══════════════════════════════════════════════════════════════
            Panel: Inbound Email (Microsoft Graph API - Mail.Read)
@@ -613,6 +697,44 @@
           <dt class="font-semibold text-light-content-primary dark:text-content-primary">Performance</dt>
           <dd>Disabling checks you don't need speeds up validation and reduces
               external API calls (WHOIS, GeoIP, SMTP connections).</dd>
+        </div>
+      </div>
+    </div>
+
+    {# Breach sidebar (shown for Breach tab) [F43] #}
+    <div id="sidebar-breach" class="settings-sidebar mica-card overflow-hidden hidden">
+      <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10">
+        <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+          <i class="bi bi-info-circle mr-1.5"></i>Breach Monitoring Guide
+        </span>
+      </div>
+      <div class="p-4 text-sm text-light-content-muted dark:text-content-muted space-y-3">
+        <p>Breach monitoring uses the
+           <strong class="text-light-content-primary dark:text-content-primary">Have I Been Pwned</strong> (HIBP)
+           API to check if email addresses associated with your domains have appeared in known data breaches.</p>
+        <ol class="list-decimal list-inside space-y-2 text-xs leading-relaxed">
+          <li>Purchase an API key from <a href="https://haveibeenpwned.com/API/Key" target="_blank" rel="noopener"
+              class="text-primary-500 hover:text-primary-600 underline">haveibeenpwned.com</a>.</li>
+          <li>Paste the API key in the field and enable breach monitoring.</li>
+          <li>Set the check frequency (default: every 7 days).</li>
+          <li>Breach results appear on each domain's <strong class="text-light-content-primary dark:text-content-primary">Breaches</strong> page.</li>
+          <li>Unacknowledged breaches show as <span class="badge-critical">critical</span> badges on the dashboard.</li>
+        </ol>
+        <div class="pt-2 border-t border-light-surface-border/20 dark:border-surface-border/10">
+          <p class="text-xs">
+            <i class="bi bi-shield-check mr-1 text-status-ok"></i>
+            The HIBP API uses <strong class="text-light-content-primary dark:text-content-primary">domain search</strong>
+            to find all breached email addresses under your monitored domains. API calls are rate-limited
+            to respect HIBP's usage policies.
+          </p>
+        </div>
+        <div class="pt-2 border-t border-light-surface-border/20 dark:border-surface-border/10">
+          <p class="text-xs">
+            <i class="bi bi-exclamation-triangle mr-1 text-status-warning"></i>
+            <strong class="text-light-content-primary dark:text-content-primary">Privacy note:</strong>
+            Domain breach searches require a verified domain ownership through HIBP.
+            Only the domain name is sent to the API.
+          </p>
         </div>
       </div>
     </div>

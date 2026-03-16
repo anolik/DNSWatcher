@@ -1,7 +1,7 @@
 """
-Settings blueprint routes - F22 / F50.
+Settings blueprint routes - F22 / F43 / F50.
 
-Provides a UI for managing DNS resolver configuration.
+Provides a UI for managing DNS resolver configuration and breach monitoring.
 Settings are per-organization with a global (org_id=NULL) fallback.
 """
 
@@ -77,6 +77,14 @@ def _apply_form_to_settings(dns_settings: DnsSettings, form: DnsSettingsForm) ->
     if outbound_secret:
         dns_settings.outbound_client_secret = outbound_secret
     dns_settings.outbound_mailbox = (form.outbound_mailbox.data or "").strip() or None
+
+    # F43 - Breach monitoring (HIBP)
+    dns_settings.check_breach_enabled = form.check_breach_enabled.data
+    hibp_key = (form.hibp_api_key.data or "").strip()
+    if hibp_key:
+        dns_settings.hibp_api_key = hibp_key
+    dns_settings.breach_check_frequency_days = int(form.breach_check_frequency_days.data)
+
     dns_settings.updated_at = datetime.now(timezone.utc)
     dns_settings.updated_by = current_user.id
     return resolver_lines
@@ -120,6 +128,7 @@ def index():
             dns_settings = DnsSettings(org_id=org_id)
             dns_settings.graph_client_secret = global_row.graph_client_secret
             dns_settings.outbound_client_secret = global_row.outbound_client_secret
+            dns_settings.hibp_api_key = global_row.hibp_api_key
             db.session.add(dns_settings)
 
         resolver_lines = _apply_form_to_settings(dns_settings, form)
@@ -171,5 +180,9 @@ def index():
         form.outbound_client_id.data = dns_settings.outbound_client_id or ""
         form.outbound_client_secret.data = ""  # never pre-fill secrets
         form.outbound_mailbox.data = dns_settings.outbound_mailbox or ""
+        # F43 - Breach monitoring
+        form.check_breach_enabled.data = dns_settings.check_breach_enabled
+        form.hibp_api_key.data = ""  # never pre-fill secrets
+        form.breach_check_frequency_days.data = str(dns_settings.breach_check_frequency_days)
 
     return render_template("settings.html", form=form, dns_settings=dns_settings)

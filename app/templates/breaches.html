@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block title %}{{ domain.hostname }} - Breaches{% endblock %}
+
+{% block content %}
+
+{# -- Breadcrumb -- #}
+<nav aria-label="breadcrumb" class="mb-3">
+  <ol class="flex items-center gap-2 text-sm text-light-content-muted dark:text-content-muted">
+    <li>
+      <a href="{{ url_for('dashboard.index') }}"
+         class="hover:text-primary-500 transition-colors">Dashboard</a>
+    </li>
+    <li class="before:content-['/'] before:mr-2">
+      <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
+         class="hover:text-primary-500 transition-colors">{{ domain.hostname }}</a>
+    </li>
+    <li class="before:content-['/'] before:mr-2 text-light-content-primary dark:text-content-primary"
+        aria-current="page">Breaches</li>
+  </ol>
+</nav>
+
+{# -- Page header -- #}
+<div class="flex items-center justify-between mb-3">
+  <h1 class="text-xl font-semibold text-light-content-primary dark:text-content-primary flex items-center gap-2">
+    <i class="bi bi-shield-exclamation"></i>{{ domain.hostname }} &mdash; Breaches
+  </h1>
+  <div class="flex items-center gap-2">
+    {% if entries and unack_count > 0 %}
+    <form method="post"
+          action="{{ url_for('dashboard.acknowledge_all_breaches', domain_id=domain.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button type="submit" class="btn-outline btn-sm"
+              onclick="return confirm('Acknowledge all {{ unack_count }} unacknowledged breach(es)?');">
+        <i class="bi bi-check2-all"></i> Acknowledge All
+      </button>
+    </form>
+    {% endif %}
+    <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}"
+       class="btn-outline btn-sm">
+      <i class="bi bi-arrow-left"></i> Back to Detail
+    </a>
+  </div>
+</div>
+
+{# -- Summary cards -- #}
+<div class="grid grid-cols-12 gap-4 mb-4">
+  <div class="col-span-6 sm:col-span-3">
+    <div class="mica-card p-4 text-center">
+      <div class="text-2xl font-bold text-light-content-primary dark:text-content-primary">{{ total_breaches }}</div>
+      <div class="text-xs text-light-content-muted dark:text-content-muted mt-1">Total Breaches</div>
+    </div>
+  </div>
+  <div class="col-span-6 sm:col-span-3">
+    <div class="mica-card p-4 text-center">
+      <div class="text-2xl font-bold text-light-content-primary dark:text-content-primary">{{ total_emails }}</div>
+      <div class="text-xs text-light-content-muted dark:text-content-muted mt-1">Emails Found</div>
+    </div>
+  </div>
+  <div class="col-span-6 sm:col-span-3">
+    <div class="mica-card p-4 text-center">
+      <div class="text-2xl font-bold {% if unack_count > 0 %}text-status-danger{% else %}text-status-success{% endif %}">{{ unack_count }}</div>
+      <div class="text-xs text-light-content-muted dark:text-content-muted mt-1">Unacknowledged</div>
+    </div>
+  </div>
+  <div class="col-span-6 sm:col-span-3">
+    <div class="mica-card p-4 text-center">
+      <div class="text-sm font-semibold text-light-content-primary dark:text-content-primary">
+        {% if last_checked %}
+          {{ last_checked|to_tz }}
+        {% else %}
+          Never
+        {% endif %}
+      </div>
+      <div class="text-xs text-light-content-muted dark:text-content-muted mt-1">Last Checked</div>
+    </div>
+  </div>
+</div>
+
+{# -- Breaches table -- #}
+{% if entries %}
+<div class="mica-card overflow-hidden">
+  <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex items-center justify-between">
+    <span class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-shield-exclamation mr-1.5"></i>Breach History
+      <span class="ml-1 text-light-content-muted dark:text-content-muted font-normal">({{ entries|length }})</span>
+    </span>
+  </div>
+
+  <div class="overflow-x-auto">
+    <table class="mica-table">
+      <thead>
+        <tr>
+          <th>Breach Name</th>
+          <th class="text-center">Date</th>
+          <th>Data Types</th>
+          <th class="text-right">Pwn Count</th>
+          <th class="text-right">Emails</th>
+          <th class="text-center">Status</th>
+          <th class="text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr class="{% if not entry.acknowledged %}border-l-4 border-l-status-danger bg-red-50/30 dark:bg-red-900/5{% endif %}">
+          <td>
+            <div class="font-semibold text-sm text-light-content-primary dark:text-content-primary">
+              {{ entry.breach_name }}
+            </div>
+            {% if entry.description %}
+              <div class="text-xs text-light-content-muted dark:text-content-muted mt-0.5 max-w-md truncate" title="{{ entry.description|striptags }}">
+                {{ entry.description|striptags|truncate(80) }}
+              </div>
+            {% endif %}
+          </td>
+          <td class="text-center whitespace-nowrap text-sm text-light-content-secondary dark:text-content-secondary">
+            {% if entry.breach_date %}
+              {{ entry.breach_date }}
+            {% else %}
+              <span class="text-light-content-muted dark:text-content-muted">-</span>
+            {% endif %}
+          </td>
+          <td>
+            {% for dc in entry.get_data_classes() %}
+              <span class="inline-block text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-surface-raised text-light-content-secondary dark:text-content-secondary mr-1 mb-1">{{ dc }}</span>
+            {% endfor %}
+          </td>
+          <td class="text-right tabular-nums text-sm text-light-content-secondary dark:text-content-secondary">
+            {% if entry.pwn_count %}
+              {{ "{:,}".format(entry.pwn_count) }}
+            {% else %}
+              <span class="text-light-content-muted dark:text-content-muted">-</span>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            {% set emails = entry.get_emails() %}
+            {% if emails %}
+              <button type="button" class="badge-info cursor-pointer breach-emails-toggle"
+                      data-target="emails-{{ entry.id }}" title="Click to show emails">
+                {{ emails|length }}
+              </button>
+            {% else %}
+              <span class="text-light-content-muted dark:text-content-muted text-sm">0</span>
+            {% endif %}
+          </td>
+          <td class="text-center">
+            {% if entry.acknowledged %}
+              <span class="badge-ok" title="Acknowledged by {{ entry.acknowledged_by_user.username if entry.acknowledged_by_user else 'unknown' }}{% if entry.acknowledged_at %} on {{ entry.acknowledged_at|to_tz }}{% endif %}">
+                <i class="bi bi-check-circle mr-0.5"></i>Ack
+              </span>
+            {% else %}
+              <span class="badge-critical">
+                <i class="bi bi-exclamation-circle mr-0.5"></i>New
+              </span>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            {% if not entry.acknowledged %}
+            <form method="post"
+                  action="{{ url_for('dashboard.acknowledge_breach', domain_id=domain.id, entry_id=entry.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+              <button type="submit" class="btn-outline btn-sm" title="Acknowledge this breach">
+                <i class="bi bi-check-lg"></i>
+              </button>
+            </form>
+            {% else %}
+              <span class="text-light-content-muted dark:text-content-muted text-xs">
+                {% if entry.acknowledged_by_user %}{{ entry.acknowledged_by_user.username }}{% endif %}
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        {# Expandable email row #}
+        {% set emails = entry.get_emails() %}
+        {% if emails %}
+        <tr id="emails-{{ entry.id }}" class="hidden">
+          <td colspan="7" class="bg-gray-50 dark:bg-surface-raised px-6 py-3">
+            <div class="text-xs font-semibold text-light-content-secondary dark:text-content-secondary mb-2">
+              <i class="bi bi-envelope mr-1"></i>Affected emails ({{ emails|length }})
+            </div>
+            <div class="flex flex-wrap gap-1">
+              {% for email in emails %}
+                <span class="inline-block text-xs px-2 py-1 rounded bg-white dark:bg-surface-card border border-light-surface-border/20 dark:border-surface-border/10 text-light-content-primary dark:text-content-primary font-mono">
+                  {{ email }}
+                </span>
+              {% endfor %}
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="mica-card overflow-hidden">
+  <div class="p-8 text-center text-light-content-muted dark:text-content-muted">
+    <i class="bi bi-shield-check text-4xl block mb-3 text-status-success"></i>
+    {% if domain.breach_status == 'pending' %}
+      <p class="text-lg">No breach check has been performed yet.</p>
+      <p class="mt-1 text-sm">Breach monitoring runs automatically based on the configured frequency in Settings.</p>
+    {% else %}
+      <p class="text-lg">No breaches found for this domain.</p>
+      <p class="mt-1 text-sm">All clear! No compromised accounts have been detected.</p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# -- Navigation links -- #}
+<div class="mt-4 flex items-center gap-2">
+  <a href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}" class="btn-outline btn-sm">
+    <i class="bi bi-eye"></i> Domain Detail
+  </a>
+  <a href="{{ url_for('history.domain_history', domain_id=domain.id) }}" class="btn-outline btn-sm">
+    <i class="bi bi-clock-history"></i> Check History
+  </a>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.querySelectorAll('.breach-emails-toggle').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var targetId = btn.getAttribute('data-target');
+      var row = document.getElementById(targetId);
+      if (row) {
+        row.classList.toggle('hidden');
+      }
+    });
+  });
+</script>
+{% endblock %}

@@ -35,7 +35,15 @@ from app.checker.registrar import check_registrar
 from app.checker.reputation import check_reputation
 from app.checker.spf import check_spf
 from app.checker.tls import check_tls
-from app.models import CheckResult, DkimSelector, DnsSettings, Domain
+from app.models import (
+    BreachEntry,
+    BreachResult,
+    ChangeLog,
+    CheckResult,
+    DkimSelector,
+    DnsSettings,
+    Domain,
+)
 from app.utils.tenant import get_org_settings
 
 logger = logging.getLogger(__name__)
@@ -182,6 +190,11 @@ def run_domain_check(
             lambda: check_tls(mx_result["records"], settings),
             dns_errors,
         )
+
+    # ---- Breach check (informational, frequency-gated) ----
+    breach_result = None
+    if settings.check_breach_enabled and settings.hibp_api_key:
+        breach_result = _maybe_run_breach_check(domain, settings, dns_errors)
 
     # ---- Compute overall status ----
     overall_status = _worst_of_statuses(statuses)
@@ -479,6 +492,128 @@ def _sync_dkim_selectors(domain: Domain, mx_provider: str | None) -> list[str]:
         ).all()
     ]
     return active_selectors
+
+
+def _maybe_run_breach_check(
+    domain: Domain,
+    settings: DnsSettings,
+    dns_errors: list[str],
+) -> dict | None:
+    """Run breach check only if the domain hasn't been checked within the configured frequency."""
+    from datetime import timedelta
+
+    from app.checker.breach import check_breaches
+
+    # Frequency gating: skip if checked recently
+    frequency_days = settings.breach_check_frequency_days or 7
+    latest_breach_check = (
+        db.session.execute(
+            db.select(BreachResult)
+            .where(BreachResult.domain_id == domain.id)
+            .order_by(BreachResult.checked_at.desc())
+            .limit(1)
+        ).scalars().first()
+    )
+
+    if latest_breach_check:
+        age = datetime.now(timezone.utc) - latest_breach_check.checked_at.replace(tzinfo=timezone.utc)
+        if age < timedelta(days=frequency_days):
+            logger.debug("Breach check skipped for %s (last checked %s ago)", domain.hostname, age)
+            return None
+
+    # Run the actual breach check
+    result = _run_safe_check(
+        "breach",
+        lambda: check_breaches(domain.hostname, settings.hibp_api_key),
+        dns_errors,
+    )
+
+    if result is None:
+        return None
+
+    now = datetime.now(timezone.utc)
+
+    # Upsert breach entries
+    existing_entries = {
+        e.breach_name: e
+        for e in BreachEntry.query.filter_by(domain_id=domain.id).all()
+    }
+
+    new_breach_count = 0
+    for breach in (result.get("breaches") or []):
+        name = breach.get("name", "")
+        if not name:
+            continue
+        if name in existing_entries:
+            # Update existing entry (email list may have changed)
+            entry = existing_entries[name]
+            entry.emails_json = json.dumps(breach.get("emails", []))
+            entry.pwn_count = breach.get("pwn_count", 0)
+        else:
+            # New breach found
+            entry = BreachEntry(
+                domain_id=domain.id,
+                breach_name=name,
+                breach_date=breach.get("date"),
+                data_classes=json.dumps(breach.get("data_classes", [])),
+                pwn_count=breach.get("pwn_count", 0),
+                description=breach.get("description"),
+                emails_json=json.dumps(breach.get("emails", [])),
+                first_seen_at=now,
+                acknowledged=False,
+            )
+            db.session.add(entry)
+            new_breach_count += 1
+
+    # Count unacknowledged
+    unack_count = BreachEntry.query.filter_by(
+        domain_id=domain.id, acknowledged=False
+    ).count() + new_breach_count  # new ones aren't flushed yet
+
+    # Save breach result snapshot
+    breach_result = BreachResult(
+        domain_id=domain.id,
+        checked_at=now,
+        total_breaches=result.get("total_breaches", 0),
+        total_emails=result.get("total_emails", 0),
+        breaches_json=json.dumps(result.get("breaches", [])),
+        emails_json=json.dumps(result.get("emails", [])),
+        unacknowledged_count=unack_count,
+        error=result.get("error"),
+    )
+    db.session.add(breach_result)
+
+    # Update domain breach status
+    if result.get("error"):
+        domain.breach_status = "error"
+    elif unack_count > 0:
+        domain.breach_status = "critical"
+    elif result.get("total_breaches", 0) > 0:
+        domain.breach_status = "warning"
+    else:
+        domain.breach_status = "ok"
+    domain.unacknowledged_breaches = unack_count
+
+    # Log new breaches as changes
+    if new_breach_count > 0:
+        for breach in (result.get("breaches") or []):
+            name = breach.get("name", "")
+            if name and name not in existing_entries:
+                db.session.add(ChangeLog(
+                    domain_id=domain.id,
+                    check_type="breach",
+                    field_changed="new_breach",
+                    old_value=None,
+                    new_value=name,
+                    severity="info",
+                ))
+
+    logger.info(
+        "Breach check for %s: %d breaches, %d new, %d unacknowledged",
+        domain.hostname, result.get("total_breaches", 0), new_breach_count, unack_count,
+    )
+
+    return result
 
 
 def _to_json(data: Any) -> str | None:

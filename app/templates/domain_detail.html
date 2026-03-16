@@ -35,6 +35,13 @@
        class="btn-outline btn-sm">
       <i class="bi bi-key"></i> DKIM Selectors
     </a>
+    <a href="{{ url_for('dashboard.domain_breaches', domain_id=domain.id) }}"
+       class="btn-outline btn-sm">
+      <i class="bi bi-shield-exclamation"></i> Breaches
+      {% if domain.unacknowledged_breaches > 0 %}
+        <span class="badge-critical ml-1">{{ domain.unacknowledged_breaches }}</span>
+      {% endif %}
+    </a>
   </div>
 </div>
 
@@ -818,8 +825,14 @@
 
 </div>
 
-{# -- History link -- #}
+{# -- History & Breach links -- #}
 <div class="mt-4 flex items-center gap-2">
+  <a href="{{ url_for('dashboard.domain_breaches', domain_id=domain.id) }}" class="btn-outline btn-sm">
+    <i class="bi bi-shield-exclamation"></i> Breach History
+    {% if domain.unacknowledged_breaches > 0 %}
+      <span class="badge-critical ml-1">{{ domain.unacknowledged_breaches }}</span>
+    {% endif %}
+  </a>
   <a href="{{ url_for('history.domain_history', domain_id=domain.id) }}" class="btn-outline btn-sm">
     <i class="bi bi-clock-history"></i> View Check History &amp; Changes
   </a>

@@ -1,5 +1,5 @@
 """
-Dashboard blueprint routes - F16 through F21.
+Dashboard blueprint routes - F16 through F21, F41-F42.
 
 Handles:
   F16 - Main dashboard with domain status table and summary bar
@@ -8,6 +8,7 @@ Handles:
   F19 - Manual check trigger (POST /domains/<id>/check and /domains/check-all)
   F20 - Domain detail page (GET /domains/<id>)
   F21 - DKIM selector management (GET/POST /domains/<id>/selectors, POST /selectors/<id>/toggle)
+  F42 - Breach detail page and acknowledgment routes
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from datetime import datetime, timezone
 
 from flask import abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -22,7 +24,7 @@ from flask_login import current_user, login_required
 from app import db
 from app.dashboard import bp
 from app.dashboard.forms import AddDomainForm, AddSelectorForm
-from app.models import DkimSelector, DmarcReport, DnsSettings, Domain
+from app.models import BreachEntry, BreachResult, DkimSelector, DmarcReport, DnsSettings, Domain
 from app.utils.auth import editor_required
 from app.utils.domain import DEFAULT_SELECTORS, create_domain_with_selectors
 from app.utils.rate_limit import is_rate_limited
@@ -424,3 +426,144 @@ def toggle_selector(selector_id: int):
     return redirect(
         url_for("dashboard.domain_selectors", domain_id=selector.domain_id)
     )
+
+
+# ---------------------------------------------------------------------------
+# F42 - Breach Detail Page
+# ---------------------------------------------------------------------------
+
+
+@bp.route("/domains/<int:domain_id>/breaches")
+@login_required
+def domain_breaches(domain_id: int):
+    """Breach detail page showing all breach entries for a domain."""
+    domain = db.session.get(Domain, domain_id)
+    if domain is None:
+        abort(404)
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
+        abort(404)
+
+    # Fetch all breach entries for this domain, unacknowledged first, then by date
+    entries = (
+        db.session.execute(
+            db.select(BreachEntry)
+            .where(BreachEntry.domain_id == domain_id)
+            .order_by(BreachEntry.acknowledged.asc(), BreachEntry.breach_date.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+    # Compute summary stats
+    total_breaches = len(entries)
+    total_emails_set: set[str] = set()
+    for entry in entries:
+        for email in entry.get_emails():
+            total_emails_set.add(email.lower())
+    total_emails = len(total_emails_set)
+    unack_count = sum(1 for e in entries if not e.acknowledged)
+
+    # Get last breach check timestamp
+    latest_breach_result: BreachResult | None = (
+        db.session.execute(
+            db.select(BreachResult)
+            .where(BreachResult.domain_id == domain_id)
+            .order_by(BreachResult.checked_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+    last_checked = latest_breach_result.checked_at if latest_breach_result else None
+
+    return render_template(
+        "breaches.html",
+        domain=domain,
+        entries=entries,
+        total_breaches=total_breaches,
+        total_emails=total_emails,
+        unack_count=unack_count,
+        last_checked=last_checked,
+    )
+
+
+@bp.route("/domains/<int:domain_id>/breaches/<int:entry_id>/acknowledge", methods=["POST"])
+@editor_required
+def acknowledge_breach(domain_id: int, entry_id: int):
+    """Acknowledge a single breach entry."""
+    domain = db.session.get(Domain, domain_id)
+    if domain is None:
+        abort(404)
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
+        abort(404)
+
+    entry = db.session.get(BreachEntry, entry_id)
+    if entry is None or entry.domain_id != domain_id:
+        abort(404)
+
+    if not entry.acknowledged:
+        entry.acknowledged = True
+        entry.acknowledged_by = current_user.id
+        entry.acknowledged_at = datetime.now(timezone.utc)
+
+        # Update domain unacknowledged count
+        domain.unacknowledged_breaches = max(0, domain.unacknowledged_breaches - 1)
+        if domain.unacknowledged_breaches == 0 and domain.breach_status == 'critical':
+            domain.breach_status = 'warning'
+
+        db.session.commit()
+        logger.info(
+            "Breach acknowledged: domain=%r breach=%r user=%r",
+            domain.hostname,
+            entry.breach_name,
+            current_user.username,
+        )
+        flash(f"Breach '{entry.breach_name}' acknowledged.", "success")
+
+    return redirect(url_for("dashboard.domain_breaches", domain_id=domain_id))
+
+
+@bp.route("/domains/<int:domain_id>/breaches/acknowledge-all", methods=["POST"])
+@editor_required
+def acknowledge_all_breaches(domain_id: int):
+    """Acknowledge all unacknowledged breach entries for a domain."""
+    domain = db.session.get(Domain, domain_id)
+    if domain is None:
+        abort(404)
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
+        abort(404)
+
+    now = datetime.now(timezone.utc)
+    unack_entries = (
+        db.session.execute(
+            db.select(BreachEntry)
+            .where(
+                BreachEntry.domain_id == domain_id,
+                BreachEntry.acknowledged == False,
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    count = 0
+    for entry in unack_entries:
+        entry.acknowledged = True
+        entry.acknowledged_by = current_user.id
+        entry.acknowledged_at = now
+        count += 1
+
+    # Update domain breach counters
+    domain.unacknowledged_breaches = 0
+    if domain.breach_status == 'critical':
+        domain.breach_status = 'warning'
+
+    db.session.commit()
+    logger.info(
+        "All breaches acknowledged: domain=%r count=%d user=%r",
+        domain.hostname,
+        count,
+        current_user.username,
+    )
+    flash(f"{count} breach(es) acknowledged for '{domain.hostname}'.", "success")
+    return redirect(url_for("dashboard.domain_breaches", domain_id=domain_id))

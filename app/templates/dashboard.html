@@ -64,6 +64,7 @@
           <th data-sort="status" role="button" class="sortable text-center">DMARC <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="status" role="button" class="sortable text-center">DKIM <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="status" role="button" class="sortable text-center">Rep <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="number" role="button" class="sortable text-center hidden md:table-cell">Breaches <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="text" role="button" class="sortable col-narrow">Provider <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="text" role="button" class="sortable col-narrow hidden md:table-cell">Register <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="text" role="button" class="sortable col-narrow hidden md:table-cell">NS Host <i class="bi bi-chevron-expand sort-icon"></i></th>
@@ -80,13 +81,14 @@
           <th><select class="mica-select text-xs py-1 px-2 col-filter" data-col="2"><option value="">All</option><option value="ok">OK</option><option value="warning">Warning</option><option value="critical">Critical</option><option value="pending">Pending</option></select></th>
           <th><select class="mica-select text-xs py-1 px-2 col-filter" data-col="3"><option value="">All</option><option value="ok">OK</option><option value="warning">Warning</option><option value="critical">Critical</option><option value="pending">Pending</option></select></th>
           <th><select class="mica-select text-xs py-1 px-2 col-filter" data-col="4"><option value="">All</option><option value="ok">OK</option><option value="warning">Warning</option><option value="critical">Critical</option><option value="pending">Pending</option></select></th>
-          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="5" placeholder="Filter..." autocomplete="off" /></th>
-          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="6" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><select class="mica-select text-xs py-1 px-2 col-filter" data-col="5"><option value="">All</option><option value="critical">Has breaches</option><option value="ok">Clean</option><option value="pending">Pending</option></select></th>
+          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="6" placeholder="Filter..." autocomplete="off" /></th>
           <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="7" placeholder="Filter..." autocomplete="off" /></th>
           <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="8" placeholder="Filter..." autocomplete="off" /></th>
-          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="9" placeholder="Filter..." autocomplete="off" /></th>
-          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="10" placeholder="Filter..." autocomplete="off" /></th>
-          <th class="hidden md:table-cell"><select class="mica-select text-xs py-1 px-2 col-filter" data-col="11"><option value="">All</option><option value="yes">Yes</option><option value="no">No</option></select></th>
+          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="9" placeholder="Filter..." autocomplete="off" /></th>
+          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="10" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="11" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><select class="mica-select text-xs py-1 px-2 col-filter" data-col="12"><option value="">All</option><option value="yes">Yes</option><option value="no">No</option></select></th>
           <th></th>
         </tr>
       </thead>
@@ -114,6 +116,24 @@
           <td class="text-center" data-value="{{ latest.reputation_status if latest else 'pending' }}">
             {{ status_badge(latest.reputation_status if latest else None) }}
           </td>
+
+          {# F41 - Breach badge #}
+          <td class="text-center text-xs hidden md:table-cell" data-value="{{ domain.unacknowledged_breaches }}">
+            {% if domain.breach_status == 'pending' %}
+              <span class="text-light-content-muted dark:text-content-muted">-</span>
+            {% elif domain.unacknowledged_breaches > 0 %}
+              <a href="{{ url_for('dashboard.domain_breaches', domain_id=domain.id) }}" class="badge-critical" title="{{ domain.unacknowledged_breaches }} unacknowledged">
+                <i class="bi bi-shield-exclamation mr-0.5"></i>{{ domain.unacknowledged_breaches }}
+              </a>
+            {% elif domain.breach_status == 'warning' %}
+              <span class="badge-warning" title="All breaches acknowledged">
+                <i class="bi bi-shield-check mr-0.5"></i>ack
+              </span>
+            {% else %}
+              <span class="badge-ok"><i class="bi bi-shield-check"></i></span>
+            {% endif %}
+          </td>
+
           <td class="text-xs text-light-content-muted dark:text-content-muted truncate col-narrow" data-value="{{ latest.mx_provider|lower if latest and latest.mx_provider else '' }}"
               {% if latest and latest.mx_provider %}title="{{ latest.mx_provider }}"{% endif %}>
             {% if latest and latest.mx_provider %}
@@ -231,6 +251,10 @@
                 <a class="block w-full text-left px-4 py-2 text-sm text-light-content-primary dark:text-content-primary hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors"
                    href="{{ url_for('dashboard.domain_detail', domain_id=domain.id) }}">
                   <i class="bi bi-eye mr-2"></i>Details
+                </a>
+                <a class="block w-full text-left px-4 py-2 text-sm text-light-content-primary dark:text-content-primary hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors"
+                   href="{{ url_for('dashboard.domain_breaches', domain_id=domain.id) }}">
+                  <i class="bi bi-shield-exclamation mr-2"></i>Breaches
                 </a>
                 <a class="block w-full text-left px-4 py-2 text-sm text-light-content-primary dark:text-content-primary hover:bg-gray-50 dark:hover:bg-surface-raised transition-colors"
                    href="{{ url_for('history.domain_history', domain_id=domain.id) }}">

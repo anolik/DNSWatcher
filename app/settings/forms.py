@@ -1,5 +1,5 @@
 """
-F22 - Flask-WTF forms for the settings blueprint.
+F22 / F43 - Flask-WTF forms for the settings blueprint.
 """
 
 from __future__ import annotations
@@ -58,6 +58,15 @@ TIMEZONE_CHOICES: list[tuple[str, str]] = [
     ("Africa/Johannesburg", "Africa / Johannesburg"),
     ("Africa/Cairo", "Africa / Cairo"),
     ("Africa/Lagos", "Africa / Lagos"),
+]
+
+# Breach check frequency choices
+BREACH_FREQUENCY_CHOICES: list[tuple[str, str]] = [
+    ("1", "Every day"),
+    ("3", "Every 3 days"),
+    ("7", "Every 7 days"),
+    ("14", "Every 14 days"),
+    ("30", "Every 30 days"),
 ]
 
 _IP_RE = re.compile(
@@ -184,6 +193,20 @@ class DnsSettingsForm(FlaskForm):
         "Sending mailbox (noreply@ address)",
         validators=[Optional()],
     )
+
+    # F43 - Breach monitoring (HIBP)
+    check_breach_enabled: BooleanField = BooleanField("Enable breach monitoring (HIBP)")
+    hibp_api_key: StringField = StringField(
+        "HIBP API Key",
+        render_kw={"type": "password", "autocomplete": "new-password"},
+        validators=[Optional()],
+    )
+    breach_check_frequency_days: SelectField = SelectField(
+        "Check Frequency",
+        choices=BREACH_FREQUENCY_CHOICES,
+        default="7",
+    )
+
     submit: SubmitField = SubmitField("Save Settings")
 
     def validate_rdap_servers(self, field: TextAreaField) -> None:

@@ -69,6 +69,7 @@ Each feature has an assigned model based on task complexity to minimize token co
 | F11 DMARC Validation | **Opus** | Multi-field validation, policy analysis |
 | F12 DKIM Validation | **Opus** | Cryptographic key analysis |
 | F13 Reputation | Sonnet | Straightforward DNSBL queries |
+| F13B NS Provider | Sonnet | Pattern matching on NS hostnames |
 | F14 Check Engine | Sonnet | Orchestration, moderate logic |
 | F15 Anti-Flapping | Sonnet | State machine, moderate complexity |
 | F16 Dashboard | Sonnet | Table + badges, CRUD actions |
@@ -166,6 +167,7 @@ spf-dmarc-dkim-watcher/
 |   |   +-- dmarc.py             # DMARC validation
 |   |   +-- dkim.py              # DKIM key validation
 |   |   +-- reputation.py        # DNSBL lookups
+|   |   +-- ns_provider.py       # NS provider identification from nameservers
 |   |   +-- engine.py            # Orchestrate all checks
 |   |   +-- anti_flap.py         # Consecutive failure tracking
 |   |
@@ -284,6 +286,8 @@ Default selectors on domain creation: `default`, `google`, `selector1`, `selecto
 | dkim_records | TEXT | NULLABLE (JSON) |
 | reputation_status | TEXT | |
 | reputation_details | TEXT | NULLABLE (JSON) |
+| ns_provider | TEXT | NULLABLE (identified DNS hosting provider name) |
+| ns_details | TEXT | NULLABLE (JSON: ns_hostnames, confidence, raw) |
 | dns_errors | TEXT | NULLABLE (JSON) |
 | execution_time_ms | INTEGER | |
 
@@ -633,6 +637,33 @@ Index: `(domain_id, detected_at DESC)`
 3. DNSBL timeout does not crash engine
 
 **Dependencies:** F09
+
+---
+
+#### Feature: F13B - NS Provider Identification
+**Priority:** P1
+**Agent:** python-expert
+**Model:** Sonnet
+**Description:** Identify the DNS hosting provider (NS provider) from nameserver hostnames. The registrar (where the domain was purchased) is not necessarily the NS provider (who hosts the DNS zone).
+
+**Acceptance Criteria:**
+- [ ] New module `app/checker/ns_provider.py` with a mapping of known NS hostname patterns to provider names
+- [ ] Covers at least 30 common providers: Cloudflare, AWS Route53, Google Cloud DNS, Azure DNS, GoDaddy, Namecheap, OVH, Gandi, Hetzner, DigitalOcean, Linode/Akamai, NS1, DNSimple, DynDNS, Constellix, ClouDNS, Netlify, Vercel, Squarespace, Wix, Shopify, Hover, Name.com, Porkbun, Hostinger, Dreamhost, Bluehost, SiteGround, Ionos, Register.com, etc.
+- [ ] Pattern matching on NS hostnames (e.g., `*.ns.cloudflare.com` -> "Cloudflare", `ns-*.awsdns-*` -> "AWS Route53")
+- [ ] Returns `{ns_provider: str|None, ns_hostnames: list[str], confidence: str}` where confidence is "exact" (known pattern) or "inferred" (partial match)
+- [ ] Falls back to extracting the NS hostname's parent domain as provider name if no known pattern matches
+- [ ] Uses nameservers already collected by the registrar checker (no additional DNS queries)
+- [ ] New columns on `CheckResult`: `ns_provider` (String 100, nullable) and `ns_details` (Text/JSON, nullable)
+- [ ] NS provider displayed on dashboard (new column) and domain detail page (in registrar section)
+- [ ] Change detection: NS provider change logged in `change_log` with severity WARNING (changing DNS host is significant)
+
+**Verification Steps:**
+1. Domain using Cloudflare NS -> ns_provider = "Cloudflare"
+2. Domain using AWS Route53 -> ns_provider = "AWS Route53"
+3. Domain with unknown NS pattern -> ns_provider = extracted parent domain
+4. NS provider change between checks -> change_log entry with WARNING severity
+
+**Dependencies:** F09, registrar checker (uses name_servers from RDAP/WHOIS result)
 
 ---
 
@@ -1204,13 +1235,13 @@ Index: `(domain_id, detected_at DESC)`
 | Milestone | Agent(s) | Features | Status |
 |-----------|----------|----------|--------|
 | M1: Foundation | Agent 1 | F01-F08 | Pending |
-| M2: DNS Engine | Agent 2 | F09-F15 | Pending |
+| M2: DNS Engine | Agent 2 | F09-F15, F13B | Pending |
 | M3: Web Interface | Agent 3 | F16-F23 | Pending |
 | M4: History & Analytics | Agent 4 | F24-F30 | Pending |
 | M5: Integration & QA | Agent 5 | F31-F37 | Pending |
 
-**Total features:** 37
-**Feature breakdown:** P0: 22, P1: 12, P2: 1, P3: 2
+**Total features:** 38
+**Feature breakdown:** P0: 22, P1: 13, P2: 1, P3: 2
 
 ---
 
@@ -1227,6 +1258,7 @@ Index: `(domain_id, detected_at DESC)`
 | Chart.js via CDN | Yes | No build step, interactive, lightweight |
 | checkdmarc for SPF+DMARC | Yes | Actively maintained, covers both protocols |
 | pydnsbl for reputation | Yes | Free, no API key, async, 50+ blacklists |
+| NS provider from existing NS data | Yes | Reuses name_servers from RDAP/WHOIS, no extra DNS queries; pattern-matching approach covers 30+ providers |
 
 ---
 

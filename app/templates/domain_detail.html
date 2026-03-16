@@ -416,6 +416,16 @@
             <dd class="text-light-content-primary dark:text-content-primary">{{ registrar_details.expiration_date[:10] }}</dd>
             {% endif %}
 
+            {% if ns_provider %}
+            <dt class="font-semibold text-light-content-secondary dark:text-content-secondary">NS Provider</dt>
+            <dd class="text-light-content-primary dark:text-content-primary">
+              <i class="bi bi-hdd-network mr-1"></i>{{ ns_provider }}
+              {% if ns_details.get('confidence') == 'inferred' %}
+                <span class="text-xs text-light-content-muted dark:text-content-muted ml-1">(inferred)</span>
+              {% endif %}
+            </dd>
+            {% endif %}
+
             {% if registrar_details.get('name_servers') %}
             <dt class="font-semibold text-light-content-secondary dark:text-content-secondary">Name Servers</dt>
             <dd class="text-light-content-primary dark:text-content-primary">

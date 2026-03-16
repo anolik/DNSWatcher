@@ -298,6 +298,8 @@ def domain_detail(domain_id: int):
     mx_provider = latest_result.mx_provider if latest_result else None
     registrar_name = latest_result.registrar if latest_result else None
     registrar_details = latest_result.get_registrar_details() if latest_result else {}
+    ns_provider = latest_result.ns_provider if latest_result else None
+    ns_details = latest_result.get_ns_details() if latest_result else {}
     mx_geolocation = latest_result.get_mx_geolocation() if latest_result else []
     law25_status = latest_result.law25_status if latest_result else None
     mta_sts_details = latest_result.get_mta_sts_details() if latest_result else {}
@@ -329,6 +331,8 @@ def domain_detail(domain_id: int):
         mx_provider=mx_provider,
         registrar_name=registrar_name,
         registrar_details=registrar_details,
+        ns_provider=ns_provider,
+        ns_details=ns_details,
         mx_geolocation=mx_geolocation,
         law25_status=law25_status,
         mta_sts_details=mta_sts_details,

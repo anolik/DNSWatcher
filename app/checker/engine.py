@@ -30,6 +30,7 @@ from app.checker.dmarc import check_dmarc
 from app.checker.geolocation import check_geolocation
 from app.checker.mta_sts import check_mta_sts
 from app.checker.mx import PROVIDER_DKIM_SELECTORS, check_mx
+from app.checker.ns_provider import identify_ns_provider
 from app.checker.registrar import check_registrar
 from app.checker.reputation import check_reputation
 from app.checker.spf import check_spf
@@ -141,6 +142,11 @@ def run_domain_check(
             dns_errors,
         )
 
+    # ---- NS Provider identification (from registrar's name_servers, no DNS query) ----
+    ns_result = None
+    if registrar_result and registrar_result.get("name_servers"):
+        ns_result = identify_ns_provider(registrar_result["name_servers"])
+
     # ---- Geolocation check (informational, depends on MX results) ----
     geo_result = None
     if settings.check_geolocation_enabled and mx_result and mx_result.get("records"):
@@ -203,6 +209,8 @@ def run_domain_check(
         mx_provider=mx_result.get("provider") if mx_result else None,
         registrar=registrar_result.get("registrar") if registrar_result else None,
         registrar_details=_to_json(registrar_result),
+        ns_provider=ns_result.get("ns_provider") if ns_result else None,
+        ns_details=_to_json(ns_result),
         mx_geolocation=_to_json(geo_result.get("servers") if geo_result else None),
         law25_status=geo_result.get("law25_status") if geo_result else None,
         mta_sts_status=mta_sts_result.get("status") if mta_sts_result else None,

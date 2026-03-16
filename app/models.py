@@ -288,6 +288,9 @@ class CheckResult(db.Model):
     registrar: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
     registrar_details: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
 
+    ns_provider: db.Mapped[str | None] = db.mapped_column(db.String(100), nullable=True)
+    ns_details: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON string
+
     mx_geolocation: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON list of server locations
     law25_status: db.Mapped[str | None] = db.mapped_column(db.String(20), nullable=True)
 
@@ -339,6 +342,10 @@ class CheckResult(db.Model):
     def get_registrar_details(self) -> dict:
         """Deserialise registrar_details JSON, returning an empty dict on failure."""
         return _load_json(self.registrar_details)
+
+    def get_ns_details(self) -> dict:
+        """Deserialise ns_details JSON, returning an empty dict on failure."""
+        return _load_json(self.ns_details)
 
     def get_mx_geolocation(self) -> list:
         """Deserialise mx_geolocation JSON, returning an empty list on failure."""

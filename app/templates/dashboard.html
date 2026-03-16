@@ -66,6 +66,7 @@
           <th data-sort="status" role="button" class="sortable text-center">Rep <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="text" role="button" class="sortable col-narrow">Provider <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="text" role="button" class="sortable col-narrow hidden md:table-cell">Register <i class="bi bi-chevron-expand sort-icon"></i></th>
+          <th data-sort="text" role="button" class="sortable col-narrow hidden md:table-cell">NS Host <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="text" role="button" class="sortable hidden md:table-cell">Country <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="date" role="button" class="sortable col-narrow">Expires <i class="bi bi-chevron-expand sort-icon"></i></th>
           <th data-sort="date" role="button" class="sortable hidden md:table-cell">Checked <i class="bi bi-chevron-expand sort-icon"></i></th>
@@ -82,9 +83,10 @@
           <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="5" placeholder="Filter..." autocomplete="off" /></th>
           <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="6" placeholder="Filter..." autocomplete="off" /></th>
           <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="7" placeholder="Filter..." autocomplete="off" /></th>
-          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="8" placeholder="Filter..." autocomplete="off" /></th>
-          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="9" placeholder="Filter..." autocomplete="off" /></th>
-          <th class="hidden md:table-cell"><select class="mica-select text-xs py-1 px-2 col-filter" data-col="10"><option value="">All</option><option value="yes">Yes</option><option value="no">No</option></select></th>
+          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="8" placeholder="Filter..." autocomplete="off" /></th>
+          <th><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="9" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><input type="text" class="mica-input text-xs py-1 px-2 col-filter" data-col="10" placeholder="Filter..." autocomplete="off" /></th>
+          <th class="hidden md:table-cell"><select class="mica-select text-xs py-1 px-2 col-filter" data-col="11"><option value="">All</option><option value="yes">Yes</option><option value="no">No</option></select></th>
           <th></th>
         </tr>
       </thead>
@@ -124,6 +126,14 @@
               {% if latest and latest.registrar %}title="{{ latest.registrar }}"{% endif %}>
             {% if latest and latest.registrar %}
               <i class="bi bi-building mr-1"></i>{{ latest.registrar }}
+            {% else %}
+              -
+            {% endif %}
+          </td>
+          <td class="text-xs text-light-content-muted dark:text-content-muted truncate col-narrow hidden md:table-cell" data-value="{{ latest.ns_provider|lower if latest and latest.ns_provider else '' }}"
+              {% if latest and latest.ns_provider %}title="{{ latest.ns_provider }}"{% endif %}>
+            {% if latest and latest.ns_provider %}
+              <i class="bi bi-hdd-network mr-1"></i>{{ latest.ns_provider }}
             {% else %}
               -
             {% endif %}

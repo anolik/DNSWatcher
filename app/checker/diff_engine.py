@@ -73,6 +73,9 @@ def detect_changes(domain_id: int, new_result: CheckResult) -> list[ChangeLog]:
     # ---- Registrar comparisons ----
     changes.extend(_compare_registrar(domain_id, previous, new_result))
 
+    # ---- NS Provider comparisons ----
+    changes.extend(_compare_ns_provider(domain_id, previous, new_result))
+
     # ---- MTA-STS comparisons ----
     changes.extend(_compare_mta_sts(domain_id, previous, new_result))
 
@@ -538,6 +541,35 @@ def _compare_registrar(
                 old_registrar or None,
                 new_registrar or None,
                 "info",
+            )
+        )
+
+    return changes
+
+
+# ---------------------------------------------------------------------------
+# NS Provider diff
+# ---------------------------------------------------------------------------
+
+
+def _compare_ns_provider(
+    domain_id: int,
+    old: CheckResult,
+    new: CheckResult,
+) -> list[ChangeLog]:
+    changes: list[ChangeLog] = []
+
+    old_provider = old.ns_provider or ""
+    new_provider = new.ns_provider or ""
+    if old_provider != new_provider and (old_provider or new_provider):
+        changes.append(
+            _make_entry(
+                domain_id,
+                "ns_provider",
+                "ns_provider",
+                old_provider or None,
+                new_provider or None,
+                "warning",  # Changing DNS host is significant
             )
         )
 

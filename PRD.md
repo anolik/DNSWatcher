@@ -94,6 +94,14 @@ Each feature has an assigned model based on task complexity to minimize token co
 | F35 Tests - Routes | Sonnet | Standard Flask test client |
 | F36 Tests - Diff/Ingest | Sonnet | Moderate test scenarios |
 | F37 Deployment Guide | Haiku | Documentation text |
+| F38 HIBP API Client | **Opus** | API integration, rate limiting, retry logic |
+| F39 Breach Data Models | Sonnet | DB schema, migrations, relationships |
+| F40 Breach Engine Integration | Sonnet | Frequency gating, change detection |
+| F41 Dashboard Breach Badge | Sonnet | UI column, badge logic, filters |
+| F42 Breach Detail Page | Sonnet | Multi-section drill-down, acknowledgment |
+| F43 Breach Settings | Haiku | Simple form, API key config |
+| F44 Breach Statistics Page | Sonnet | Charts, metrics, reporting |
+| F45 Tests - Breach Module | **Opus** | Mocked API tests, engine integration |
 
 ---
 
@@ -168,6 +176,7 @@ spf-dmarc-dkim-watcher/
 |   |   +-- dkim.py              # DKIM key validation
 |   |   +-- reputation.py        # DNSBL lookups
 |   |   +-- ns_provider.py       # NS provider identification from nameservers
+|   |   +-- breach.py            # HIBP API client for breach monitoring
 |   |   +-- engine.py            # Orchestrate all checks
 |   |   +-- anti_flap.py         # Consecutive failure tracking
 |   |
@@ -200,6 +209,8 @@ spf-dmarc-dkim-watcher/
 |   |   +-- settings.html
 |   |   +-- import.html
 |   |   +-- health.html
+|   |   +-- breaches.html        # Per-domain breach detail page
+|   |   +-- breach_stats.html    # Global breach statistics page
 |   |
 |   +-- static/
 |       +-- css/style.css
@@ -216,6 +227,8 @@ spf-dmarc-dkim-watcher/
 |   +-- test_diff_engine.py
 |   +-- test_ingest.py
 |   +-- test_routes.py
+|   +-- test_breach.py
+|   +-- test_breach_engine.py
 |
 +-- scheduled_check.py           # PythonAnywhere daily task
 +-- create_admin.py              # CLI: create first admin
@@ -1230,6 +1243,256 @@ Index: `(domain_id, detected_at DESC)`
 
 ---
 
+### Phase 6: Breach Monitoring (Agent 2 + Agent 3)
+
+---
+
+#### Feature: F38 - HIBP API Client Module
+**Priority:** P1
+**Agent:** python-expert
+**Model:** Opus
+**Description:** Client module for the Have I Been Pwned (HIBP) Domain Search API. Handles authentication, rate limiting, pagination, and error handling for domain-wide breach lookups.
+
+**Acceptance Criteria:**
+- [ ] New module `app/checker/breach.py` with HIBP API client
+- [ ] Uses HIBP v3 API: `GET /api/v3/breaches?domain={domain}` for domain-wide breach summary
+- [ ] Uses HIBP v3 API: `GET /api/v3/breachedaccount/{account}` when per-email detail is needed
+- [ ] API key stored in `DnsSettings` table: `hibp_api_key` (String 200, nullable)
+- [ ] Feature toggle: `check_breach_enabled` (Boolean, default False — requires API key to enable)
+- [ ] Configurable rate limiting: respects HIBP's ~10 requests/minute limit with adaptive throttling
+- [ ] Retry logic with exponential backoff on 429 (rate limit) responses
+- [ ] Returns structured result: `{breaches: [{name, date, data_classes, pwncount, description}], emails: [{email, breaches[]}], total_breaches, total_emails, error}`
+- [ ] Hard timeout of 30 seconds per API call
+- [ ] Graceful failure: breach check errors never block DNS checks
+
+**Verification Steps:**
+1. Valid API key + known breached domain → returns breach list
+2. Invalid API key → returns error, does not crash
+3. Rate limit hit → retries with backoff, succeeds
+4. Unknown domain → returns empty breach list
+
+**Dependencies:** F04 (DnsSettings)
+
+---
+
+#### Feature: F39 - Breach Data Models
+**Priority:** P1
+**Agent:** python-expert
+**Model:** Sonnet
+**Description:** Database models for storing breach detection results, per-email breach details, and acknowledgment state.
+
+**Acceptance Criteria:**
+- [ ] New table `breach_results`: stores per-domain breach check snapshots
+  - `id` INTEGER PK
+  - `domain_id` INTEGER FK → domains.id CASCADE
+  - `checked_at` TIMESTAMP NOT NULL
+  - `total_breaches` INTEGER DEFAULT 0
+  - `total_emails` INTEGER DEFAULT 0
+  - `breaches_json` TEXT (JSON array of breach summaries)
+  - `emails_json` TEXT (JSON array of {email, breaches[]})
+  - `unacknowledged_count` INTEGER DEFAULT 0
+  - `error` TEXT NULLABLE
+  - Index on `(domain_id, checked_at DESC)`
+- [ ] New table `breach_entries`: individual breach records per domain for change tracking
+  - `id` INTEGER PK
+  - `domain_id` INTEGER FK → domains.id CASCADE
+  - `breach_name` TEXT NOT NULL (e.g., "LinkedIn")
+  - `breach_date` DATE NULLABLE
+  - `data_classes` TEXT (JSON array: passwords, emails, phone numbers, etc.)
+  - `pwn_count` INTEGER DEFAULT 0
+  - `description` TEXT NULLABLE
+  - `emails_json` TEXT (JSON array of affected email addresses)
+  - `first_seen_at` TIMESTAMP NOT NULL (when we first detected this breach for this domain)
+  - `acknowledged` BOOLEAN DEFAULT FALSE
+  - `acknowledged_by` INTEGER FK → users.id NULLABLE
+  - `acknowledged_at` TIMESTAMP NULLABLE
+  - UNIQUE(domain_id, breach_name)
+- [ ] New columns on `DnsSettings`:
+  - `hibp_api_key` (String 200, nullable)
+  - `check_breach_enabled` (Boolean, default False)
+  - `breach_check_frequency_days` (Integer, default 7)
+  - `breach_last_full_scan_at` (Timestamp, nullable)
+- [ ] New column on `domains`:
+  - `breach_status` (String 20, default 'pending') — values: pending/ok/warning (has acknowledged breaches)/critical (has unacknowledged breaches)
+  - `unacknowledged_breaches` (Integer, default 0)
+- [ ] Migration script `migrate_add_breach_monitoring.py`
+
+**Verification Steps:**
+1. Migration runs idempotently
+2. All tables created with correct constraints
+3. Foreign keys cascade properly on domain deletion
+
+**Dependencies:** F03
+
+---
+
+#### Feature: F40 - Breach Check Engine Integration
+**Priority:** P1
+**Agent:** python-expert
+**Model:** Sonnet
+**Description:** Integrate breach checking into the check engine with configurable frequency and staggered execution for 200+ domains.
+
+**Acceptance Criteria:**
+- [ ] Breach check runs as part of `run_domain_check()` but only when:
+  - `check_breach_enabled` is True AND `hibp_api_key` is set
+  - Domain hasn't been breach-checked within `breach_check_frequency_days` (checked via `breach_results.checked_at`)
+- [ ] Stores results in `breach_results` table
+- [ ] Upserts `breach_entries` rows: new breaches get `first_seen_at` = now, `acknowledged` = False
+- [ ] Updates `domains.breach_status` and `domains.unacknowledged_breaches` count
+- [ ] Change detection: new breach or new email in existing breach → `change_log` entry with severity INFO
+- [ ] Breach check failure does NOT affect `overall_status` (informational only)
+- [ ] Rate-limit aware: if batch checking 200+ domains, spaces HIBP calls to stay under 10/min
+- [ ] Logs breach check results at INFO level
+
+**Verification Steps:**
+1. Domain with breaches → breach_results + breach_entries created
+2. Same domain re-checked within frequency window → breach check skipped
+3. New breach appears → change_log entry, unacknowledged count incremented
+4. Breach check error → logged, DNS checks unaffected
+
+**Dependencies:** F38, F39, F14
+
+---
+
+#### Feature: F41 - Dashboard Breach Badge
+**Priority:** P1
+**Agent:** fullstack-developer
+**Model:** Sonnet
+**Description:** Add breach count badge and unacknowledged indicator to the main dashboard table.
+
+**Acceptance Criteria:**
+- [ ] New column "Breaches" on dashboard table between Rep and Provider columns
+- [ ] Badge shows total breach count for the domain
+- [ ] Color coding: grey (not checked/0), green (0 unacknowledged), red (has unacknowledged breaches)
+- [ ] Unacknowledged count shown as red number: e.g., "3 (2 new)"
+- [ ] Column is filterable (text filter on breach count)
+- [ ] Column is sortable
+- [ ] Summary bar at top includes breach stats: "X domains with unacknowledged breaches"
+- [ ] Per-column filter row updated with correct data-col indices
+
+**Verification Steps:**
+1. Domain with 3 breaches (1 unacknowledged) → shows "3" with red indicator
+2. Domain with all acknowledged → green badge
+3. Domain not yet checked → grey/dash
+4. Filter and sort work correctly
+
+**Dependencies:** F39, F16
+
+---
+
+#### Feature: F42 - Breach Detail Page
+**Priority:** P1
+**Agent:** fullstack-developer
+**Model:** Sonnet
+**Description:** Detailed breach information page for a domain, showing all breaches with affected emails and acknowledgment controls.
+
+**Acceptance Criteria:**
+- [ ] Accessible at `/domains/<id>/breaches`
+- [ ] Link from domain detail page and from dashboard breach badge
+- [ ] Summary card: total breaches, total affected emails, unacknowledged count, last checked timestamp
+- [ ] Breach list table: breach name, date, data types exposed, affected email count, pwn count, acknowledged status
+- [ ] Expandable rows showing affected email addresses per breach
+- [ ] "Acknowledge" button per breach (any logged-in user)
+- [ ] "Acknowledge All" button at top
+- [ ] Acknowledged breaches show: who acknowledged, when
+- [ ] Unacknowledged breaches visually highlighted (red/orange left border or badge)
+- [ ] CSRF protection on acknowledge actions
+- [ ] Sorted by: unacknowledged first, then by breach date descending
+
+**Verification Steps:**
+1. All breaches for a domain displayed with correct details
+2. Acknowledge button marks breach as seen, updates count
+3. Acknowledge All marks all breaches, clears domain's unacknowledged count
+4. Page shows "No breach data" when not yet checked
+5. Page shows "No breaches found" when checked but clean
+
+**Dependencies:** F39, F20
+
+---
+
+#### Feature: F43 - Breach Settings & API Key Configuration
+**Priority:** P1
+**Agent:** fullstack-developer
+**Model:** Haiku
+**Description:** Settings page section for configuring HIBP API key, breach check frequency, and enable/disable toggle.
+
+**Acceptance Criteria:**
+- [ ] New section in settings page: "Breach Monitoring (HIBP)"
+- [ ] Fields: API key (password input, masked), check frequency (dropdown: daily/every 3 days/weekly/biweekly), enable/disable toggle
+- [ ] API key validation: test call to HIBP API on save to verify key is valid
+- [ ] Shows last full scan timestamp and next scheduled scan estimate
+- [ ] Enable toggle disabled until valid API key is saved
+- [ ] CSRF protection
+- [ ] API key stored securely (not displayed after save, only "****" + last 4 chars)
+
+**Verification Steps:**
+1. Save valid API key → success, toggle becomes available
+2. Save invalid API key → error message, not saved
+3. Enable breach checking → next domain check includes breach lookup
+4. Change frequency → reflected in check engine
+
+**Dependencies:** F39, F22
+
+---
+
+#### Feature: F44 - Breach Statistics & Reporting Page
+**Priority:** P2
+**Agent:** frontend-architect
+**Model:** Sonnet
+**Description:** On-screen breach statistics page with charts, trends, and summary metrics across all monitored domains.
+
+**Acceptance Criteria:**
+- [ ] Accessible at `/breaches` (nav link added)
+- [ ] Summary metrics cards: total domains checked, domains with breaches, total unique breaches, total affected emails, unacknowledged breaches across all domains
+- [ ] Chart.js bar chart: top 10 breaches by affected domain count
+- [ ] Chart.js line chart: new breaches detected over time (per week/month)
+- [ ] Table: all domains with breaches, sorted by unacknowledged count desc
+  - Columns: domain, total breaches, total emails, unacknowledged, last checked, actions
+  - Click domain → goes to breach detail page
+- [ ] Filter by: all domains / only with unacknowledged / only clean
+- [ ] Data types breakdown: pie chart showing most common exposed data types (passwords, emails, phone numbers, etc.)
+- [ ] JSON API endpoint: `GET /api/breaches/summary` for chart data
+- [ ] Login required
+
+**Verification Steps:**
+1. Charts render with correct data
+2. Metrics match database state
+3. Filters work correctly
+4. Empty state shows "No breach data — configure HIBP API key in Settings"
+
+**Dependencies:** F38-F43
+
+---
+
+#### Feature: F45 - Unit Tests - Breach Module
+**Priority:** P1
+**Agent:** quality-engineer
+**Model:** Opus
+**Description:** Tests for the HIBP client, breach engine integration, change detection, and acknowledgment logic.
+
+**Acceptance Criteria:**
+- [ ] `test_breach.py`: HIBP API client tests with mocked HTTP responses
+  - Test successful domain lookup with breaches
+  - Test domain with no breaches
+  - Test rate limit (429) retry logic
+  - Test invalid API key (401)
+  - Test timeout handling
+  - Test malformed response handling
+- [ ] `test_breach_engine.py`: integration tests for breach check in engine
+  - Test frequency gating (skip if checked recently)
+  - Test new breach detection and change_log entry
+  - Test acknowledgment workflow
+  - Test breach_status computation
+  - Test unacknowledged count updates
+- [ ] All HIBP API calls mocked (no real network)
+
+**Verification Steps:**
+1. `pytest tests/test_breach.py tests/test_breach_engine.py` passes with 0 failures
+
+**Dependencies:** F38-F40
+
+---
+
 ## Timeline (MVP)
 
 | Milestone | Agent(s) | Features | Status |
@@ -1239,9 +1502,10 @@ Index: `(domain_id, detected_at DESC)`
 | M3: Web Interface | Agent 3 | F16-F23 | Pending |
 | M4: History & Analytics | Agent 4 | F24-F30 | Pending |
 | M5: Integration & QA | Agent 5 | F31-F37 | Pending |
+| M6: Breach Monitoring | Agent 2 + Agent 3 | F38-F45 | Pending |
 
-**Total features:** 38
-**Feature breakdown:** P0: 22, P1: 13, P2: 1, P3: 2
+**Total features:** 46
+**Feature breakdown:** P0: 22, P1: 20, P2: 2, P3: 2
 
 ---
 
@@ -1259,6 +1523,9 @@ Index: `(domain_id, detected_at DESC)`
 | checkdmarc for SPF+DMARC | Yes | Actively maintained, covers both protocols |
 | pydnsbl for reputation | Yes | Free, no API key, async, 50+ blacklists |
 | NS provider from existing NS data | Yes | Reuses name_servers from RDAP/WHOIS, no extra DNS queries; pattern-matching approach covers 30+ providers |
+| HIBP for breach monitoring | Yes | Flat $3.50/mo, most comprehensive public breach DB, domain search API, well-documented |
+| Breach check frequency separate from DNS | Yes | Breaches don't change as often; configurable (default weekly) to respect API rate limits with 200+ domains |
+| Acknowledgment workflow on breaches | Yes | Operators need to track which breaches have been reviewed; any user can acknowledge |
 
 ---
 
@@ -1268,9 +1535,13 @@ Index: `(domain_id, detected_at DESC)`
 - Multi-user support with roles
 - DMARC aggregate report ingestion (parsedmarc)
 - VirusTotal API integration for deeper reputation
-- Export reports as PDF
+- Export reports as PDF (including breach reports)
 - Webhook integrations
 - Domain grouping/tagging
 - MX record validation
 - BIMI record validation
 - DNS-over-HTTPS fallback for restricted environments
+- Dark web monitoring via Intelligence X or similar provider
+- Additional breach data providers (LeakCheck.io, DeHashed)
+- Breach notification emails to domain administrators
+- CSV export of breach data per domain

@@ -567,3 +567,95 @@ def acknowledge_all_breaches(domain_id: int):
     )
     flash(f"{count} breach(es) acknowledged for '{domain.hostname}'.", "success")
     return redirect(url_for("dashboard.domain_breaches", domain_id=domain_id))
+
+
+# ---------------------------------------------------------------------------
+# Breach monitoring toggle (per-domain)
+# ---------------------------------------------------------------------------
+
+
+@bp.route("/domains/<int:domain_id>/breach-toggle", methods=["POST"])
+@editor_required
+def toggle_breach_monitoring(domain_id: int):
+    """Toggle breach monitoring on/off for a single domain."""
+    domain = db.session.get(Domain, domain_id)
+    if domain is None:
+        abort(404)
+    if not current_user.is_superadmin and domain.org_id != get_current_org_id():
+        abort(404)
+
+    domain.breach_monitoring_enabled = not domain.breach_monitoring_enabled
+    db.session.commit()
+
+    state = "enabled" if domain.breach_monitoring_enabled else "disabled"
+    logger.info(
+        "Breach monitoring %s for %s by %s",
+        state, domain.hostname, current_user.username,
+    )
+    flash(f"Breach monitoring {state} for '{domain.hostname}'.", "info")
+
+    # Redirect back to referrer or breaches page
+    next_url = request.referrer or url_for("dashboard.domain_breaches", domain_id=domain_id)
+    return redirect(next_url)
+
+
+# ---------------------------------------------------------------------------
+# Bulk breach monitoring management
+# ---------------------------------------------------------------------------
+
+
+@bp.route("/breach-management")
+@login_required
+def breach_management():
+    """Bulk management page for enabling/disabling breach monitoring per domain."""
+    org_id = get_current_org_id()
+    query = db.select(Domain).where(Domain.is_active == True)
+    if not current_user.is_superadmin and org_id is not None:
+        query = query.where(Domain.org_id == org_id)
+    query = query.order_by(Domain.hostname.asc())
+
+    domains = db.session.execute(query).scalars().all()
+
+    return render_template(
+        "breach_management.html",
+        domains=domains,
+        enabled_count=sum(1 for d in domains if d.breach_monitoring_enabled),
+        total_count=len(domains),
+    )
+
+
+@bp.route("/breach-management/bulk", methods=["POST"])
+@editor_required
+def bulk_breach_toggle():
+    """Bulk enable/disable breach monitoring for selected domains."""
+    action = request.form.get("action")  # "enable" or "disable"
+    domain_ids = request.form.getlist("domain_ids", type=int)
+
+    if action not in ("enable", "disable"):
+        flash("Invalid action.", "danger")
+        return redirect(url_for("dashboard.breach_management"))
+
+    if not domain_ids:
+        flash("No domains selected.", "warning")
+        return redirect(url_for("dashboard.breach_management"))
+
+    org_id = get_current_org_id()
+    new_value = action == "enable"
+    count = 0
+
+    for did in domain_ids:
+        domain = db.session.get(Domain, did)
+        if domain is None or not domain.is_active:
+            continue
+        if not current_user.is_superadmin and domain.org_id != org_id:
+            continue
+        domain.breach_monitoring_enabled = new_value
+        count += 1
+
+    db.session.commit()
+    logger.info(
+        "Bulk breach monitoring %s for %d domains by %s",
+        action, count, current_user.username,
+    )
+    flash(f"Breach monitoring {action}d for {count} domain(s).", "success")
+    return redirect(url_for("dashboard.breach_management"))

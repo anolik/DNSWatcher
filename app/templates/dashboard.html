@@ -119,7 +119,9 @@
 
           {# F41 - Breach badge #}
           <td class="text-center text-xs hidden md:table-cell" data-value="{{ domain.unacknowledged_breaches }}">
-            {% if domain.breach_status == 'pending' %}
+            {% if not domain.breach_monitoring_enabled %}
+              <span class="text-light-content-muted dark:text-content-muted">-</span>
+            {% elif domain.breach_status == 'pending' %}
               <span class="text-light-content-muted dark:text-content-muted">-</span>
             {% elif domain.unacknowledged_breaches > 0 %}
               <a href="{{ url_for('dashboard.domain_breaches', domain_id=domain.id) }}" class="badge-critical" title="{{ domain.unacknowledged_breaches }} unacknowledged">

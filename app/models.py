@@ -177,6 +177,9 @@ class Domain(db.Model):
     current_status: db.Mapped[str] = db.mapped_column(
         db.String(20), default="pending", nullable=False
     )
+    breach_monitoring_enabled: db.Mapped[bool] = db.mapped_column(
+        db.Boolean, default=False, nullable=False
+    )
     breach_status: db.Mapped[str] = db.mapped_column(
         db.String(20), default="pending", nullable=False
     )

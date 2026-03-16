@@ -26,6 +26,19 @@
     <i class="bi bi-shield-exclamation"></i>{{ domain.hostname }} &mdash; Breaches
   </h1>
   <div class="flex items-center gap-2">
+    <form method="post"
+          action="{{ url_for('dashboard.toggle_breach_monitoring', domain_id=domain.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      {% if domain.breach_monitoring_enabled %}
+        <button type="submit" class="btn-sm bg-red-600 hover:bg-red-700 text-white rounded px-3 py-1 text-xs font-medium transition-colors">
+          <i class="bi bi-shield-x mr-0.5"></i>Disable Monitoring
+        </button>
+      {% else %}
+        <button type="submit" class="btn-sm bg-green-600 hover:bg-green-700 text-white rounded px-3 py-1 text-xs font-medium transition-colors">
+          <i class="bi bi-shield-check mr-0.5"></i>Enable Monitoring
+        </button>
+      {% endif %}
+    </form>
     {% if entries and unack_count > 0 %}
     <form method="post"
           action="{{ url_for('dashboard.acknowledge_all_breaches', domain_id=domain.id) }}">

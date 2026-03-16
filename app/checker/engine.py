@@ -193,7 +193,7 @@ def run_domain_check(
 
     # ---- Breach check (informational, frequency-gated) ----
     breach_result = None
-    if settings.check_breach_enabled and settings.hibp_api_key:
+    if settings.check_breach_enabled and settings.hibp_api_key and domain.breach_monitoring_enabled:
         breach_result = _maybe_run_breach_check(domain, settings, dns_errors)
 
     # ---- Compute overall status ----

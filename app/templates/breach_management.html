@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block title %}Breach Monitoring Management{% endblock %}
+
+{% block content %}
+
+{# -- Header -- #}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+  <div>
+    <h1 class="text-xl font-bold text-light-content-primary dark:text-content-primary">
+      <i class="bi bi-shield-exclamation mr-2"></i>Breach Monitoring Management
+    </h1>
+    <p class="text-sm text-light-content-muted dark:text-content-muted mt-1">
+      {{ enabled_count }} of {{ total_count }} domains have breach monitoring enabled
+    </p>
+  </div>
+  <a href="{{ url_for('dashboard.index') }}" class="btn-outline btn-sm">
+    <i class="bi bi-arrow-left mr-1"></i>Dashboard
+  </a>
+</div>
+
+{# -- Bulk Actions -- #}
+<form method="POST" action="{{ url_for('dashboard.bulk_breach_toggle') }}" id="bulk-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+  <div class="mica-card mb-4">
+    <div class="px-4 py-3 border-b border-light-surface-border/20 dark:border-surface-border/10 flex flex-wrap items-center gap-3">
+      <label class="text-sm font-semibold text-light-content-primary dark:text-content-primary">
+        Bulk Actions:
+      </label>
+      <button type="submit" name="action" value="enable"
+              class="btn-sm bg-green-600 hover:bg-green-700 text-white rounded px-3 py-1 text-xs font-medium transition-colors">
+        <i class="bi bi-check-circle mr-1"></i>Enable Selected
+      </button>
+      <button type="submit" name="action" value="disable"
+              class="btn-sm bg-red-600 hover:bg-red-700 text-white rounded px-3 py-1 text-xs font-medium transition-colors">
+        <i class="bi bi-x-circle mr-1"></i>Disable Selected
+      </button>
+      <span class="text-xs text-light-content-muted dark:text-content-muted ml-2" id="selected-count">
+        0 selected
+      </span>
+      <div class="ml-auto flex items-center gap-2">
+        <button type="button" onclick="selectAll(true)" class="btn-outline btn-sm text-xs">Select All</button>
+        <button type="button" onclick="selectAll(false)" class="btn-outline btn-sm text-xs">Deselect All</button>
+        <button type="button" onclick="selectEnabled()" class="btn-outline btn-sm text-xs">Select Enabled</button>
+        <button type="button" onclick="selectDisabled()" class="btn-outline btn-sm text-xs">Select Disabled</button>
+      </div>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="mica-table" id="breach-mgmt-table">
+        <thead>
+          <tr>
+            <th class="w-10 text-center"><input type="checkbox" id="select-all-cb" onchange="toggleAll(this.checked)" /></th>
+            <th>Hostname</th>
+            <th class="text-center">Breach Monitoring</th>
+            <th class="text-center">Breach Status</th>
+            <th class="text-center hidden md:table-cell">Unacknowledged</th>
+          </tr>
+          <tr class="filter-row">
+            <th></th>
+            <th><input type="text" class="mica-input text-xs py-1 px-2" id="filter-hostname" placeholder="Filter..." autocomplete="off" /></th>
+            <th>
+              <select class="mica-select text-xs py-1 px-2" id="filter-status">
+                <option value="">All</option>
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </th>
+            <th></th>
+            <th class="hidden md:table-cell"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for domain in domains %}
+          <tr data-monitoring="{{ 'enabled' if domain.breach_monitoring_enabled else 'disabled' }}">
+            <td class="text-center">
+              <input type="checkbox" name="domain_ids" value="{{ domain.id }}" class="domain-cb" onchange="updateCount()" />
+            </td>
+            <td>
+              <a href="{{ url_for('dashboard.domain_breaches', domain_id=domain.id) }}"
+                 class="font-semibold text-primary-500 dark:text-primary-300 hover:underline">
+                {{ domain.hostname }}
+              </a>
+            </td>
+            <td class="text-center">
+              {% if domain.breach_monitoring_enabled %}
+                <span class="badge-ok"><i class="bi bi-check-circle mr-0.5"></i>Enabled</span>
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted text-xs">Disabled</span>
+              {% endif %}
+            </td>
+            <td class="text-center text-xs">
+              {% if not domain.breach_monitoring_enabled %}
+                <span class="text-light-content-muted dark:text-content-muted">-</span>
+              {% elif domain.breach_status == 'critical' %}
+                <span class="badge-critical">{{ domain.unacknowledged_breaches }} new</span>
+              {% elif domain.breach_status == 'warning' %}
+                <span class="badge-warning">Acknowledged</span>
+              {% elif domain.breach_status == 'ok' %}
+                <span class="badge-ok">Clean</span>
+              {% else %}
+                <span class="text-light-content-muted dark:text-content-muted">Pending</span>
+              {% endif %}
+            </td>
+            <td class="text-center hidden md:table-cell text-xs">
+              {{ domain.unacknowledged_breaches if domain.breach_monitoring_enabled else '-' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleAll(checked) {
+  document.querySelectorAll('.domain-cb').forEach(cb => {
+    if (!cb.closest('tr').classList.contains('hidden')) cb.checked = checked;
+  });
+  updateCount();
+}
+
+function selectAll(state) {
+  document.querySelectorAll('.domain-cb').forEach(cb => {
+    if (!cb.closest('tr').classList.contains('hidden')) cb.checked = state;
+  });
+  document.getElementById('select-all-cb').checked = state;
+  updateCount();
+}
+
+function selectEnabled() {
+  document.querySelectorAll('.domain-cb').forEach(cb => {
+    const row = cb.closest('tr');
+    if (!row.classList.contains('hidden')) {
+      cb.checked = row.dataset.monitoring === 'enabled';
+    }
+  });
+  updateCount();
+}
+
+function selectDisabled() {
+  document.querySelectorAll('.domain-cb').forEach(cb => {
+    const row = cb.closest('tr');
+    if (!row.classList.contains('hidden')) {
+      cb.checked = row.dataset.monitoring === 'disabled';
+    }
+  });
+  updateCount();
+}
+
+function updateCount() {
+  const count = document.querySelectorAll('.domain-cb:checked').length;
+  document.getElementById('selected-count').textContent = count + ' selected';
+}
+
+// Filtering
+document.getElementById('filter-hostname').addEventListener('input', applyFilters);
+document.getElementById('filter-status').addEventListener('change', applyFilters);
+
+function applyFilters() {
+  const hostname = document.getElementById('filter-hostname').value.toLowerCase();
+  const status = document.getElementById('filter-status').value;
+
+  document.querySelectorAll('#breach-mgmt-table tbody tr').forEach(row => {
+    const name = row.children[1].textContent.trim().toLowerCase();
+    const monitoring = row.dataset.monitoring;
+
+    const matchHost = !hostname || name.includes(hostname);
+    const matchStatus = !status || monitoring === status;
+
+    row.classList.toggle('hidden', !(matchHost && matchStatus));
+  });
+}
+</script>
+{% endblock %}

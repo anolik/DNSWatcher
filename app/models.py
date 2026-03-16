@@ -177,6 +177,12 @@ class Domain(db.Model):
     current_status: db.Mapped[str] = db.mapped_column(
         db.String(20), default="pending", nullable=False
     )
+    breach_status: db.Mapped[str] = db.mapped_column(
+        db.String(20), default="pending", nullable=False
+    )
+    unacknowledged_breaches: db.Mapped[int] = db.mapped_column(
+        db.Integer, default=0, nullable=False
+    )
 
     # ------------------------------------------------------------------
     # Relationships
@@ -514,6 +520,16 @@ class DnsSettings(db.Model):
     check_tls_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=True, nullable=False)
 
     # ------------------------------------------------------------------
+    # Breach monitoring (HIBP)
+    # ------------------------------------------------------------------
+    hibp_api_key: db.Mapped[str | None] = db.mapped_column(db.String(200), nullable=True)
+    check_breach_enabled: db.Mapped[bool] = db.mapped_column(db.Boolean, default=False, nullable=False)
+    breach_check_frequency_days: db.Mapped[int] = db.mapped_column(db.Integer, default=7, nullable=False)
+    breach_last_full_scan_at: db.Mapped[datetime | None] = db.mapped_column(
+        db.DateTime(timezone=True), nullable=True
+    )
+
+    # ------------------------------------------------------------------
     # Data retention
     # ------------------------------------------------------------------
     data_retention_days: db.Mapped[int] = db.mapped_column(
@@ -554,6 +570,103 @@ class DnsSettings(db.Model):
         return (
             f"<DnsSettings id={self.id} timeout={self.timeout_seconds}"
             f" retries={self.retries} flap_threshold={self.flap_threshold}>"
+        )
+
+
+# ---------------------------------------------------------------------------
+# BreachResult
+# ---------------------------------------------------------------------------
+
+
+class BreachResult(db.Model):
+    """Snapshot of a breach check run for a single domain."""
+
+    __tablename__ = "breach_results"
+    __table_args__ = (
+        db.Index("ix_breach_results_domain_checked", "domain_id", "checked_at"),
+    )
+
+    id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True)
+    domain_id: db.Mapped[int] = db.mapped_column(
+        db.Integer, db.ForeignKey("domains.id", ondelete="CASCADE"), nullable=False
+    )
+    checked_at: db.Mapped[datetime] = db.mapped_column(
+        db.DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    total_breaches: db.Mapped[int] = db.mapped_column(db.Integer, default=0, nullable=False)
+    total_emails: db.Mapped[int] = db.mapped_column(db.Integer, default=0, nullable=False)
+    breaches_json: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+    emails_json: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+    unacknowledged_count: db.Mapped[int] = db.mapped_column(db.Integer, default=0, nullable=False)
+    error: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+
+    domain: db.Mapped[Domain] = db.relationship("Domain")
+
+    def get_breaches(self) -> list:
+        """Deserialise breaches_json, returning an empty list on failure."""
+        return _load_json(self.breaches_json, default=[])
+
+    def get_emails(self) -> list:
+        """Deserialise emails_json, returning an empty list on failure."""
+        return _load_json(self.emails_json, default=[])
+
+    def __repr__(self) -> str:
+        return (
+            f"<BreachResult id={self.id} domain_id={self.domain_id}"
+            f" breaches={self.total_breaches} emails={self.total_emails}>"
+        )
+
+
+# ---------------------------------------------------------------------------
+# BreachEntry
+# ---------------------------------------------------------------------------
+
+
+class BreachEntry(db.Model):
+    """Individual breach record per domain for tracking and acknowledgment."""
+
+    __tablename__ = "breach_entries"
+    __table_args__ = (
+        db.UniqueConstraint("domain_id", "breach_name", name="uq_breach_domain_name"),
+        db.Index("ix_breach_entries_domain", "domain_id"),
+    )
+
+    id: db.Mapped[int] = db.mapped_column(db.Integer, primary_key=True)
+    domain_id: db.Mapped[int] = db.mapped_column(
+        db.Integer, db.ForeignKey("domains.id", ondelete="CASCADE"), nullable=False
+    )
+    breach_name: db.Mapped[str] = db.mapped_column(db.String(200), nullable=False)
+    breach_date: db.Mapped[str | None] = db.mapped_column(db.String(20), nullable=True)
+    data_classes: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON array
+    pwn_count: db.Mapped[int] = db.mapped_column(db.Integer, default=0, nullable=False)
+    description: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)
+    emails_json: db.Mapped[str | None] = db.mapped_column(db.Text, nullable=True)  # JSON array
+    first_seen_at: db.Mapped[datetime] = db.mapped_column(
+        db.DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    acknowledged: db.Mapped[bool] = db.mapped_column(db.Boolean, default=False, nullable=False)
+    acknowledged_by: db.Mapped[int | None] = db.mapped_column(
+        db.Integer, db.ForeignKey("users.id"), nullable=True
+    )
+    acknowledged_at: db.Mapped[datetime | None] = db.mapped_column(
+        db.DateTime(timezone=True), nullable=True
+    )
+
+    domain: db.Mapped[Domain] = db.relationship("Domain")
+    acknowledged_by_user: db.Mapped[User | None] = db.relationship("User", foreign_keys=[acknowledged_by])
+
+    def get_data_classes(self) -> list:
+        """Deserialise data_classes JSON, returning an empty list on failure."""
+        return _load_json(self.data_classes, default=[])
+
+    def get_emails(self) -> list:
+        """Deserialise emails_json, returning an empty list on failure."""
+        return _load_json(self.emails_json, default=[])
+
+    def __repr__(self) -> str:
+        return (
+            f"<BreachEntry id={self.id} domain_id={self.domain_id}"
+            f" breach={self.breach_name!r} ack={self.acknowledged}>"
         )
 
 
